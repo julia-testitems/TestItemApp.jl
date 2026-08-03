@@ -10,7 +10,7 @@ TestItemControllers = "340407ab-12a4-4a78-8da2-3de3b3fd1448"
 TestItemRunnerCore = "f0955e71-0b96-4c6b-b0a1-15a26c19f143"
 
 [compat]
-JuliaWorkspaces = "7.0.0"
+JuliaWorkspaces = "9"
 Tachikoma = "2"
 TestItemControllers = "1.0.0"
 TestItemRunnerCore = "0.1.0"
