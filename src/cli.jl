@@ -11,11 +11,11 @@ const USAGE = """
 juliati — run Julia @testitem tests from the command line
 
 Usage:
-  juliati run [path] [options]     Run all test items found under path (default: current directory)
+  juliati [path] [options]         Run all test items found under path (default: current directory)
   juliati --help                   Show this help
   juliati --version                Show version
 
-Options for `run`:
+Options:
   --filter <expr>                Julia expression over `name`, `tags`, `filename`,
                                  `package_name`; only items for which it is true run.
   --timeout <seconds>            Per-test-item timeout (default: no timeout).
@@ -41,7 +41,7 @@ _cli_error(msg) = throw(CliError(msg))
 """
     parse_run_args(args::Vector{String})
 
-Parse the arguments of the `run` subcommand into a NamedTuple of options.
+Parse the command line arguments into a NamedTuple of run options.
 Throws [`CliError`](@ref) on invalid input.
 """
 function parse_run_args(args::Vector{String})
@@ -195,20 +195,18 @@ function run_command(args::Vector{String})::Int
     return (any_failed || !isempty(result.definition_errors)) ? 1 : 0
 end
 
+# Running tests is the default action (pytest-style): `juliati [path] [options]`.
+# `-i`/`--interactive` is reserved for a future TUI mode.
 function real_main(args::Vector{String})::Int
     try
-        if isempty(args) || args[1] in ("-h", "--help", "help")
-            println(isempty(args) ? stderr : stdout, USAGE)
-            return isempty(args) ? 2 : 0
-        elseif args[1] in ("--version", "version")
+        if !isempty(args) && args[1] in ("-h", "--help", "help")
+            println(USAGE)
+            return 0
+        elseif !isempty(args) && args[1] in ("--version", "version")
             println("juliati $(pkgversion(TestItemApp))")
             return 0
-        elseif args[1] == "run"
-            return run_command(args[2:end])
         else
-            println(stderr, "Unknown command: $(args[1])\n")
-            println(stderr, USAGE)
-            return 2
+            return run_command(args)
         end
     catch err
         if err isa CliError

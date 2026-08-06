@@ -168,8 +168,20 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
 - `environments::Vector{RunProfile}` — run every item once per profile.
 - `julia_cmd`, `julia_args`, `julia_num_threads` — how to launch test processes.
 - `token` — optional cancellation token.
+- `log_min_level` — minimum level for log records emitted while the run is active
+  (default `Logging.Warn`, which hides the controller's info-level lifecycle messages;
+  `JULIA_DEBUG` overrides still apply).
 """
-function run_tests(
+function run_tests(path; log_min_level = Logging.Warn, kwargs...)
+    # The controller logs its lifecycle with @info from the reactor task and the tasks
+    # it spawns; tasks inherit the logger at spawn time, so the logger must be in place
+    # before the controller is created, i.e. around the whole run.
+    Logging.with_logger(Logging.ConsoleLogger(stderr, log_min_level)) do
+        _run_tests(path; kwargs...)
+    end
+end
+
+function _run_tests(
         path;
         filter = nothing,
         max_workers::Int = DEFAULT_MAX_WORKERS,
@@ -354,20 +366,17 @@ function run_tests(
             Base.display_error(err, catch_backtrace())
         end
 
-        debuglogger = Logging.ConsoleLogger(stderr, Logging.Warn)
         try
-            Logging.with_logger(debuglogger) do
-                TestItemControllers.execute_testrun(
-                    controller,
-                    string(UUIDs.uuid4()),
-                    test_envs,
-                    collect(values(testitems_by_id)),
-                    work_units,
-                    test_setups,
-                    max_workers,
-                    token,
-                )
-            end
+            TestItemControllers.execute_testrun(
+                controller,
+                string(UUIDs.uuid4()),
+                test_envs,
+                collect(values(testitems_by_id)),
+                work_units,
+                test_setups,
+                max_workers,
+                token,
+            )
         finally
             TestItemControllers.shutdown(controller)
             wait_for_shutdown(controller, reactor_task)

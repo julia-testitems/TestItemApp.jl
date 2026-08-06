@@ -73,10 +73,12 @@ end
     end
 end
 
-@testitem "real_main help and version" begin
+@testitem "real_main help, version and usage errors" begin
     @test TestItemApp.real_main(["--help"]) == 0
     @test TestItemApp.real_main(["--version"]) == 0
-    @test TestItemApp.real_main(String[]) == 2
-    @test TestItemApp.real_main(["frobnicate"]) == 2
-    @test TestItemApp.real_main(["run", "--progress", "fancy"]) == 2
+    # Running is the default action, so bad options and nonexistent paths go
+    # through the run path and exit 2. (real_main(String[]) is not tested here —
+    # it would actually run tests in the current directory.)
+    @test TestItemApp.real_main(["--progress", "fancy"]) == 2
+    @test TestItemApp.real_main(["frobnicate"]) == 2  # no such directory
 end
