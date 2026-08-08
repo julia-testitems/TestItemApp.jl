@@ -16,4 +16,6 @@ function (@main)(args)
     return real_main(collect(String, args))
 end
 
+include("precompile.jl")
+
 end

@@ -195,6 +195,7 @@ function _run_tests(
         julia_args::Vector{String} = String[],
         julia_num_threads::Union{Nothing,String} = nothing,
         token = nothing,
+        store_path::Union{Nothing,String} = nothing,
     )
     path = abspath(path)
     progress_ui in (:bar, :log, :none) || error("progress_ui must be :bar, :log or :none")
@@ -203,7 +204,7 @@ function _run_tests(
         print_failed_results = false
     end
 
-    jw = JuliaWorkspaces.workspace_from_folders([path])
+    jw = JuliaWorkspaces.workspace_from_folders([path]; store_path=store_path)
 
     # ── Discovery ─────────────────────────────────────────────────────
     testitems = []
