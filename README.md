@@ -81,24 +81,6 @@ juliati --filter 'endswith(filename, "test_parsing.jl")'
 
 With `--results-json results.json` the complete run — every test item, its status, duration, failure messages with stack traces, and captured output — is written as JSON, suitable for further processing in CI.
 
-## Julia API
-
-The functionality behind the CLI is also available programmatically:
-
-```julia
-using TestItemApp
-
-result = run_tests(
-    "path/to/MyPackage";
-    filter = i -> :fast in i.tags,
-    max_workers = 4,
-    timeout = 300,
-    environments = [RunProfile("Julia 1.12", false, Dict{String,Any}())],
-)
-```
-
-`run_tests` returns a `TestrunResult` with per-item, per-profile statuses; `RunProfile` describes one named configuration (name, coverage mode, environment variables) under which every test item is run — pass several profiles to run the whole suite once per configuration. See the docstrings of `run_tests` and `RunProfile` for all keyword arguments.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
