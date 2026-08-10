@@ -10,7 +10,16 @@
     @test opts.coverage == false
     @test opts.fail_on_detection_error == true
     @test opts.julia_cmd == "julia"
+    @test opts.check_bounds === nothing
     @test opts.debug == false
+end
+
+@testitem "parse_run_args check-bounds" begin
+    @test TestItemApp.parse_run_args(String["--check-bounds", "yes"]).check_bounds == "yes"
+    @test TestItemApp.parse_run_args(String["--check-bounds=auto"]).check_bounds == "auto"
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--check-bounds", "no"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--check-bounds", "maybe"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--check-bounds"])
 end
 
 @testitem "parse_run_args full options" begin

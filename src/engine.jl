@@ -167,6 +167,11 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
 - `progress_ui::Symbol` — `:bar`, `:log`, or `:none` (`:none` also silences the toggles above).
 - `environments::Vector{RunProfile}` — run every item once per profile.
 - `julia_cmd`, `julia_args`, `julia_num_threads` — how to launch test processes.
+- `check_bounds` — `--check-bounds` value for test processes: `"auto"` (or `nothing`, the
+  default) respects `@inbounds` annotations and lets test processes reuse the precompile
+  caches of normal dev sessions; `"yes"` forces bounds checks everywhere (the `Pkg.test`
+  behavior) at the cost of re-precompiling the whole environment into a separate cache
+  slot on the first run.
 - `token` — optional cancellation token.
 - `log_min_level` — minimum level for log records emitted while the run is active
   (default `Logging.Warn`, which hides the controller's info-level lifecycle messages;
@@ -194,6 +199,7 @@ function _run_tests(
         julia_cmd::String = "julia",
         julia_args::Vector{String} = String[],
         julia_num_threads::Union{Nothing,String} = nothing,
+        check_bounds::Union{Nothing,String} = nothing,
         token = nothing,
         store_path::Union{Nothing,String} = nothing,
     )
@@ -308,6 +314,7 @@ function _run_tests(
                 pkg.package_uri,
                 pkg.project_uri,
                 pkg.env_content_hash,
+                check_bounds,
             )
             push!(test_envs, env)
             profile_name_by_env_id[env.id] = profile.name

@@ -31,6 +31,10 @@ Options:
   --fail-on-detection-error      Do not run any tests if a test item fails to parse (default).
   --no-fail-on-detection-error   Run tests even if some test items fail to parse.
   --julia-cmd <path>             Julia executable used for test processes (default: "julia").
+  --check-bounds <auto|yes>      --check-bounds mode for test processes. "auto" (default)
+                                 respects @inbounds and reuses existing precompile caches;
+                                 "yes" forces bounds checks everywhere (Pkg.test behavior)
+                                 but precompiles into a separate cache slot on first run.
   --debug                        Enable debug logging.
 
 Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error.
@@ -53,7 +57,8 @@ function parse_run_args(args::Vector{String})
             # Options whose value itself contains '=' (--env KEY=VAL) must not be split twice,
             # so only split when the part before '=' is a known value-taking option.
             if opt in ("--filter", "--timeout", "--profile-name", "--env", "--env-json",
-                "--juliaup-channel", "--results-json", "--progress", "--max-workers", "--julia-cmd")
+                "--juliaup-channel", "--results-json", "--progress", "--max-workers", "--julia-cmd",
+                "--check-bounds")
                 push!(expanded, String(opt), String(value))
                 continue
             end
@@ -72,6 +77,7 @@ function parse_run_args(args::Vector{String})
     coverage = false
     fail_on_detection_error = true
     julia_cmd = "julia"
+    check_bounds = nothing
     debug = false
 
     i = 0
@@ -130,6 +136,10 @@ function parse_run_args(args::Vector{String})
             fail_on_detection_error = false
         elseif a == "--julia-cmd"
             julia_cmd = next_value(a)
+        elseif a == "--check-bounds"
+            value = next_value(a)
+            value in ("auto", "yes") || _cli_error("invalid value for --check-bounds: $value (expected auto or yes)")
+            check_bounds = value
         elseif a == "--debug"
             debug = true
         elseif startswith(a, "-")
@@ -153,6 +163,7 @@ function parse_run_args(args::Vector{String})
         coverage = coverage,
         fail_on_detection_error = fail_on_detection_error,
         julia_cmd = julia_cmd,
+        check_bounds = check_bounds,
         debug = debug,
     )
 end
@@ -185,6 +196,7 @@ function run_command(args::Vector{String})::Int
         progress_ui = opts.progress,
         environments = [RunProfile(opts.profile_name, opts.coverage, opts.env)],
         julia_cmd = opts.julia_cmd,
+        check_bounds = opts.check_bounds,
     )
 
     if opts.results_json !== nothing

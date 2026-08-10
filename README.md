@@ -56,6 +56,7 @@ The exit code is `0` when everything passed, `1` on test failures or definition 
 | `--env-json <json>` | JSON object of environment variables for test processes; a `null` value removes the variable. |
 | `--juliaup-channel <channel>` | Set `JULIAUP_CHANNEL` for test processes. |
 | `--julia-cmd <path>` | Julia executable used for test processes (default: `julia`). |
+| `--check-bounds <auto\|yes>` | `--check-bounds` mode for test processes. `auto` (default) respects `@inbounds` and reuses existing precompile caches; `yes` forces bounds checks everywhere (the `Pkg.test` behavior) but precompiles the environment into a separate cache slot on the first run. |
 | `--fail-on-detection-error` / `--no-fail-on-detection-error` | Whether to refuse to run any tests when a test item fails to parse (default: fail). |
 | `--debug` | Enable debug logging. |
 | `--help`, `--version` | Show help / version. |
