@@ -2,16 +2,125 @@
     opts = TestItemApp.parse_run_args(String[])
     @test opts.path == pwd()
     @test opts.filter_str === nothing
-    @test opts.timeout === nothing
+    @test opts.timeout == TestItemApp.DEFAULT_TIMEOUT
     @test opts.profile_name == "Default"
     @test isempty(opts.env)
     @test opts.results_json === nothing
+    @test opts.junit_xml === nothing
     @test opts.progress == :bar
+    @test opts.output == :issues
+    @test opts.stream == false
+    @test opts.threads === nothing
     @test opts.coverage == false
+    @test opts.coverage_lcov === nothing
+    @test opts.gc_between_testitems === nothing
+    @test opts.memory_threshold === nothing
+    @test opts.schedule == :duration
     @test opts.fail_on_detection_error == true
     @test opts.julia_cmd == "julia"
     @test opts.check_bounds === nothing
     @test opts.debug == false
+end
+
+@testitem "parse_run_args timeout defaults and opt-out" begin
+    # A missing timeout used to mean "no timeout", which turns a hung item into a hung job.
+    @test TestItemApp.parse_run_args(String[]).timeout == 1200.0
+    @test TestItemApp.parse_run_args(String["--timeout", "30"]).timeout == 30.0
+    @test TestItemApp.parse_run_args(String["--timeout=none"]).timeout === nothing
+    @test TestItemApp.parse_run_args(String["--timeout", "off"]).timeout === nothing
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--timeout", "0"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--timeout", "-5"])
+end
+
+@testitem "parse_run_args new options in both syntaxes" begin
+    space = TestItemApp.parse_run_args(String[
+        "--junit-xml", "j.xml",
+        "--output", "all",
+        "--coverage-lcov", "lcov.info",
+        "--threads", "4",
+        "--memory-threshold", "0.75",
+        "--schedule", "contiguous",
+    ])
+    equals = TestItemApp.parse_run_args(String[
+        "--junit-xml=j.xml",
+        "--output=all",
+        "--coverage-lcov=lcov.info",
+        "--threads=4",
+        "--memory-threshold=0.75",
+        "--schedule=contiguous",
+    ])
+    for opts in (space, equals)
+        @test opts.junit_xml == "j.xml"
+        @test opts.output == :all
+        @test opts.coverage_lcov == "lcov.info"
+        @test opts.coverage == true   # --coverage-lcov implies --coverage
+        @test opts.threads == "4"
+        @test opts.memory_threshold == 0.75
+        @test opts.schedule == :contiguous
+    end
+    @test space == equals
+end
+
+@testitem "every value-taking option is in the --opt=value whitelist" begin
+    # `--opt=value` is split only for options on this whitelist, so a value-taking option
+    # that is missing from it silently degrades to "unknown option".
+    # Which options take a value is probed at runtime rather than read off the source: an
+    # option that consumes one reports "missing value for" when given nothing to consume.
+    src = read(joinpath(pkgdir(TestItemApp), "src", "cli.jl"), String)
+    all_options = Set(m[1] for m in eachmatch(r"a == \"(--[a-z0-9-]+)\"", src))
+    @test "--filter" in all_options && "--coverage" in all_options
+
+    takes_value(opt) = try
+        TestItemApp.parse_run_args(String[opt])
+        false
+    catch e
+        e isa TestItemApp.CliError && occursin("missing value for", e.msg)
+    end
+
+    value_taking = Set(opt for opt in all_options if takes_value(opt))
+    @test issetequal(value_taking, TestItemApp.VALUE_TAKING_OPTIONS)
+
+    # And every whitelisted option really does get split on '='. An unsplit `--opt=value`
+    # falls through to "unknown option", so any other error still proves the split happened.
+    for opt in TestItemApp.VALUE_TAKING_OPTIONS
+        try
+            TestItemApp.parse_run_args(String["$opt=zzz"])
+        catch e
+            @test !occursin("unknown option", e.msg)
+        end
+    end
+end
+
+@testitem "parse_run_args gc and stream flags" begin
+    @test TestItemApp.parse_run_args(String["--gc-between-testitems"]).gc_between_testitems == true
+    @test TestItemApp.parse_run_args(String["--no-gc-between-testitems"]).gc_between_testitems == false
+
+    @test TestItemApp.parse_run_args(String["--stream", "--max-workers", "1"]).stream == true
+    # Live output from several processes would interleave arbitrarily.
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--stream"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--stream", "--max-workers", "4"])
+    @test TestItemApp.real_main(["--stream", "--max-workers", "2"]) == 2
+end
+
+@testitem "parse_run_args new option errors" begin
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--output", "verbose"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--schedule", "random"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--memory-threshold", "1.5"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--memory-threshold", "lots"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--threads", "0"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--threads", "many"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--threads", "1,2,3"])
+end
+
+@testitem "_valid_threads accepts Julia's own --threads grammar" begin
+    @test TestItemApp._valid_threads("1")
+    @test TestItemApp._valid_threads("16")
+    @test TestItemApp._valid_threads("auto")
+    @test TestItemApp._valid_threads("4,1")
+    @test TestItemApp._valid_threads("auto,auto")
+    @test !TestItemApp._valid_threads("")
+    @test !TestItemApp._valid_threads("-1")
+    @test !TestItemApp._valid_threads("1,")
 end
 
 @testitem "parse_run_args check-bounds" begin

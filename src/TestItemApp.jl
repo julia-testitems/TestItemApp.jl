@@ -5,7 +5,8 @@ import TestItemControllers
 using TestItemControllers: wait_for_shutdown
 using TestItemControllers: Results
 using TestItemControllers.Results: TestrunResult, TestrunResultTestitem, TestrunResultTestitemProfile,
-    TestrunResultMessage, TestrunResultStackFrame, TestrunResultDefinitionError
+    TestrunResultMessage, TestrunResultStackFrame, TestrunResultDefinitionError,
+    TestrunResultPerfStats, TestrunResultFileCoverage
 
 export run_tests, RunProfile
 
