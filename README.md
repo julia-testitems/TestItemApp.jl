@@ -46,11 +46,19 @@ The exit code is `0` when everything passed, `1` on test failures or definition 
 | Option | Description |
 | --- | --- |
 | `--filter <expr>` | Julia expression over `name`, `tags`, `filename`, `package_name`; only items for which it evaluates to `true` are run. |
-| `--timeout <seconds>` | Per-test-item timeout (default: no timeout). |
+| `--timeout <seconds\|none>` | Per-test-item timeout in seconds (default: `1200`). `none` disables it. |
 | `--max-workers <n>` | Maximum number of parallel test processes (default: number of CPU threads, capped at 8). |
+| `--threads <n\|auto\|n,m>` | Value for the test processes' `--threads` (default: Julia's own default). |
 | `--progress <bar\|log\|none>` | Progress output style (default: `bar`). |
+| `--output <issues\|all\|none>` | Which captured test item output is echoed to the console: only failing items (default), every item, or nothing. Output is always captured into the results regardless. |
+| `--stream` | Print test item output live as it is produced instead of when the item finishes. Requires `--max-workers 1`. |
 | `--coverage` | Run test processes in coverage mode. |
+| `--coverage-lcov <path>` | Write the merged coverage of the run to this file in LCOV format. Implies `--coverage`. |
+| `--gc-between-testitems` / `--no-gc-between-testitems` | Run a full GC between test items. On by default when more than one test process is used. |
+| `--memory-threshold <frac>` | Recycle a test process once system memory use exceeds this fraction (0–1). Off by default. |
+| `--schedule <duration\|contiguous>` | How test items are distributed over test processes. `duration` (default) orders by measured duration, past failures and warm setups; `contiguous` chunks by position. |
 | `--results-json <path>` | Write the full test run results as JSON to this file. |
+| `--junit-xml <path>` | Write the test run results as JUnit XML to this file. |
 | `--profile-name <name>` | Profile name recorded in the results (default: `"Default"`). |
 | `--env <KEY=VALUE>` | Environment variable for test processes (repeatable). |
 | `--env-json <json>` | JSON object of environment variables for test processes; a `null` value removes the variable. |
@@ -78,9 +86,35 @@ juliati --filter ':fast in tags && !(:windows in tags)'
 juliati --filter 'endswith(filename, "test_parsing.jl")'
 ```
 
-### JSON results
+### Test item output
 
-With `--results-json results.json` the complete run — every test item, its status, duration, failure messages with stack traces, and captured output — is written as JSON, suitable for further processing in CI.
+Every test item's captured output always reaches `--results-json` and `--junit-xml`. `--output` only controls what is echoed to the console: `issues` (the default) prints it alongside the failure detail of failing items, `all` prints it for every item as it finishes, and `none` prints none of it.
+
+For debugging a single test item, `--stream` prints its output as it happens rather than after it finishes. Because output from several test processes would interleave arbitrarily, it requires `--max-workers 1`:
+
+```sh
+juliati --filter 'name == "the slow one"' --max-workers 1 --stream --progress log
+```
+
+### Reports
+
+With `--results-json results.json` the complete run — every test item, its status, duration, performance statistics, failure messages with stack traces, and captured output — is written as JSON, suitable for further processing in CI.
+
+`--junit-xml junit.xml` writes the same run as JUnit XML, which most CI systems ingest natively: one `<testsuite>` per source file, one `<testcase>` per (test item, profile), with captured output in `<system-out>` and per-item performance statistics as `<properties>`.
+
+### Coverage
+
+`--coverage` runs the test processes with coverage instrumentation, attributed per test item, and `--coverage-lcov lcov.info` writes the merged result in LCOV format for Codecov, Coveralls, `genhtml` and friends:
+
+```sh
+juliati --coverage-lcov lcov.info
+```
+
+### Memory and scheduling
+
+Test processes are pooled and outlive a single run, so long sessions benefit from `--gc-between-testitems` (on by default with more than one worker) and `--memory-threshold 0.9`, which recycles a test process once system memory use crosses that fraction.
+
+`--schedule duration` (the default) orders test items by their measured duration, past failures and which test process already has their `@testmodule`s warm. `--schedule contiguous` restores the previous chunk-by-position behavior if that ordering ever misbehaves.
 
 ## License
 

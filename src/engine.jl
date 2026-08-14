@@ -37,6 +37,8 @@ mutable struct RunContext
     testitems_by_id::Dict{String,TestItemControllers.TestItemDetail}
     profile_name_by_env_id::Dict{String,String}
     progress_ui::Symbol
+    output_mode::Symbol                                 # :issues, :all or :none
+    stream::Bool
     progressbar_next::Function
     count_success::Int
     count_fail::Int
@@ -49,8 +51,34 @@ mutable struct RunContext
     lock::ReentrantLock
 end
 
+# Perf stats are only interesting when they carry something, and the compile timings are
+# absent on Julia versions that do not expose them.
+function _format_perf(perf)
+    perf === nothing && return ""
+    parts = String[]
+    perf.bytes !== nothing && push!(parts, "$(Base.format_bytes(perf.bytes)) alloc")
+    perf.allocs !== nothing && push!(parts, "$(perf.allocs) allocs")
+    perf.gctime !== nothing && perf.gctime > 0 && push!(parts, "gc $(round(perf.gctime; digits=1))ms")
+    perf.compile_time !== nothing && perf.compile_time > 0 && push!(parts, "compile $(round(perf.compile_time; digits=1))ms")
+    perf.recompile_time !== nothing && perf.recompile_time > 0 && push!(parts, "recompile $(round(perf.recompile_time; digits=1))ms")
+    return isempty(parts) ? "" : " [" * join(parts, ", ") * "]"
+end
+
+# The captured output of one test item, echoed under a header so it cannot be confused with
+# the runner's own reporting.
+function _echo_output(ctx::RunContext, output_key, label)
+    chunks = get(ctx.outputs, output_key, nothing)
+    (chunks === nothing || isempty(chunks)) && return
+    text = join(chunks)
+    isempty(strip(text)) && return
+    printstyled("    ── output of $label ──\n"; color=:light_black)
+    for line in split(rstrip(text, ['\n']), '\n')
+        println("    ", line)
+    end
+end
+
 function _make_callbacks(ctx::RunContext)
-    function record_result(testitem_id, test_env_id, status, messages, duration)
+    function record_result(testitem_id, test_env_id, status, messages, duration, perf=nothing)
         lock(ctx.lock) do
             testitem = ctx.testitems_by_id[testitem_id]
             profile_name = get(ctx.profile_name_by_env_id, test_env_id, "Default")
@@ -61,32 +89,41 @@ function _make_callbacks(ctx::RunContext)
             if ctx.progress_ui == :log
                 symbol = status == :passed ? "✓" : status == :skipped ? "⊘" : "✗"
                 duration_string = duration !== nothing ? " ($(duration)ms)" : ""
-                println("$symbol $profile_name $(_display_path(testitem.uri)):$(testitem.label) → $status$duration_string")
+                println("$symbol $profile_name $(_display_path(testitem.uri)):$(testitem.label) → $status$duration_string$(_format_perf(perf))")
             end
             ctx.progress_ui == :bar && ctx.progressbar_next()
+            # `:issues` echoes at the end, next to the failure detail; `:all` echoes here so
+            # a passing item's output appears while the run is still going.
+            if ctx.output_mode == :all && !ctx.stream
+                _echo_output(ctx, (testitem_id, test_env_id), testitem.label)
+            end
             push!(ctx.responses, (
                 testitem = testitem,
                 test_env_id = test_env_id,
                 profile_name = profile_name,
-                result = (status = status, messages = messages, duration = duration),
+                result = (status = status, messages = messages, duration = duration, perf = perf),
             ))
         end
     end
 
     TestItemControllers.ControllerCallbacks(
         on_testitem_started = (testrun_id, testitem_id, test_env_id) -> nothing,
-        on_testitem_passed = (testrun_id, testitem_id, test_env_id, duration) ->
-            record_result(testitem_id, test_env_id, :passed, nothing, duration),
-        on_testitem_failed = (testrun_id, testitem_id, test_env_id, messages, duration) ->
-            record_result(testitem_id, test_env_id, :failed, messages, duration),
-        on_testitem_errored = (testrun_id, testitem_id, test_env_id, messages, duration) ->
-            record_result(testitem_id, test_env_id, :errored, messages, duration),
-        on_testitem_skipped = (testrun_id, testitem_id, test_env_id) ->
+        on_testitem_passed = (testrun_id, testitem_id, test_env_id, duration, perf=nothing) ->
+            record_result(testitem_id, test_env_id, :passed, nothing, duration, perf),
+        on_testitem_failed = (testrun_id, testitem_id, test_env_id, messages, duration, perf=nothing) ->
+            record_result(testitem_id, test_env_id, :failed, messages, duration, perf),
+        on_testitem_errored = (testrun_id, testitem_id, test_env_id, messages, duration, perf=nothing) ->
+            record_result(testitem_id, test_env_id, :errored, messages, duration, perf),
+        on_testitem_skipped = (testrun_id, testitem_id, test_env_id, reason=nothing) ->
             record_result(testitem_id, test_env_id, :skipped, nothing, nothing),
         on_append_output = (testrun_id, testitem_id, test_env_id, output) -> begin
             testitem_id === nothing && return  # process-level output; captured by on_process_output
             lock(ctx.lock) do
                 push!(get!(Vector{String}, ctx.outputs, (testitem_id, test_env_id)), output)
+                if ctx.stream
+                    print(output)
+                    flush(stdout)
+                end
             end
         end,
         on_attach_debugger = (testrun_id, debug_pipename) -> nothing,
@@ -120,6 +157,24 @@ _convert_stack_frames(frames) = frames === nothing ? nothing :
             something(f.line, 0),
             something(f.column, 0),
         ) for f in frames
+    ]
+
+_convert_perf(perf) = perf === nothing ? nothing :
+    TestrunResultPerfStats(
+        perf.elapsed,
+        perf.bytes,
+        perf.allocs,
+        perf.gctime,
+        perf.compile_time,
+        perf.recompile_time,
+    )
+
+_convert_coverage(coverage) = coverage === nothing ? nothing :
+    TestrunResultFileCoverage[
+        TestrunResultFileCoverage(
+            fc.uri,
+            Union{Nothing,Int}[c for c in fc.coverage],
+        ) for fc in coverage
     ]
 
 _convert_messages(messages) = messages === nothing ? nothing :
@@ -165,8 +220,20 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
   fails to parse; the errors are reported in the result either way.
 - `print_failed_results::Bool`, `print_summary::Bool` — terminal reporting toggles.
 - `progress_ui::Symbol` — `:bar`, `:log`, or `:none` (`:none` also silences the toggles above).
+- `output_mode::Symbol` — which captured test item output is echoed to the console:
+  `:issues` (default, failing items only), `:all`, or `:none`. Output is always captured
+  and always attached to the result; this only controls the console echo.
+- `stream::Bool` — print test item output as it is produced instead of when the item
+  finishes. Only meaningful with a single test process.
 - `environments::Vector{RunProfile}` — run every item once per profile.
 - `julia_cmd`, `julia_args`, `julia_num_threads` — how to launch test processes.
+  `julia_num_threads` is the test processes' `--threads` value (`"4"`, `"auto"`, `"4,1"`).
+- `gc_between_testitems::Union{Nothing,Bool}` — run a full GC between test items;
+  `nothing` (default) turns it on when more than one test process is used.
+- `memory_threshold::Union{Nothing,Float64}` — recycle a test process once system memory
+  use exceeds this fraction; `nothing` (default) never recycles.
+- `schedule::Symbol` — `:duration` (default) or `:contiguous`; see
+  [`TestItemController`](@ref TestItemControllers.TestItemController).
 - `check_bounds` — `--check-bounds` value for test processes: `"auto"` (or `nothing`, the
   default) respects `@inbounds` annotations and lets test processes reuse the precompile
   caches of normal dev sessions; `"yes"` forces bounds checks everywhere (the `Pkg.test`
@@ -195,16 +262,23 @@ function _run_tests(
         print_failed_results::Bool = true,
         print_summary::Bool = true,
         progress_ui::Symbol = :bar,
+        output_mode::Symbol = :issues,
+        stream::Bool = false,
         environments::Vector{RunProfile} = [RunProfile("Default", false, Dict{String,Any}())],
         julia_cmd::String = "julia",
         julia_args::Vector{String} = String[],
         julia_num_threads::Union{Nothing,String} = nothing,
         check_bounds::Union{Nothing,String} = nothing,
+        gc_between_testitems::Union{Nothing,Bool} = nothing,
+        memory_threshold::Union{Nothing,Float64} = nothing,
+        schedule::Symbol = :duration,
         token = nothing,
         store_path::Union{Nothing,String} = nothing,
     )
     path = abspath(path)
     progress_ui in (:bar, :log, :none) || error("progress_ui must be :bar, :log or :none")
+    output_mode in (:issues, :all, :none) || error("output_mode must be :issues, :all or :none")
+    schedule in (:duration, :contiguous) || error("schedule must be :duration or :contiguous")
     if progress_ui == :none
         print_summary = false
         print_failed_results = false
@@ -342,6 +416,8 @@ function _run_tests(
         testitems_by_id,
         profile_name_by_env_id,
         progress_ui,
+        output_mode,
+        stream,
         () -> nothing,  # placeholder, replaced below
         0, 0, 0, 0,
         [],
@@ -365,9 +441,18 @@ function _run_tests(
         ProgressMeter.next!(p, showvalues = [(Symbol("Progress"), "$done/$n_total$detail")])
     end
 
+    # Coverage instrumentation is harvested per test item, but only for files under the
+    # packages being tested — without these roots the test process has nothing to filter
+    # against and collects nothing at all.
+    coverage_root_uris = any(p.coverage for p in environments) ?
+        String[uri for uri in keys(unique_packages) if !isempty(uri)] :
+        nothing
+
+    coverage_results = nothing
+
     if !isempty(work_units)
         callbacks = _make_callbacks(ctx)
-        controller = TestItemControllers.TestItemController(callbacks)
+        controller = TestItemControllers.TestItemController(callbacks; schedule=schedule)
         reactor_task = @async try
             run(controller)
         catch err
@@ -375,7 +460,7 @@ function _run_tests(
         end
 
         try
-            TestItemControllers.execute_testrun(
+            coverage_results = TestItemControllers.execute_testrun(
                 controller,
                 string(UUIDs.uuid4()),
                 test_envs,
@@ -383,7 +468,10 @@ function _run_tests(
                 work_units,
                 test_setups,
                 max_workers,
-                token,
+                token;
+                coverage_root_uris = coverage_root_uris,
+                gc_between_testitems = gc_between_testitems,
+                memory_threshold = memory_threshold,
             )
         finally
             TestItemControllers.shutdown(controller)
@@ -426,6 +514,9 @@ function _run_tests(
                     print(" ($(r.result.duration)ms)")
                 end
                 println()
+                if output_mode == :issues && !stream
+                    _echo_output(ctx, (r.testitem.id, r.test_env_id), r.testitem.label)
+                end
                 if r.result.messages !== nothing
                     for m in r.result.messages
                         println("    ", replace(m.message, "\n" => "\n    "))
@@ -456,6 +547,7 @@ function _run_tests(
             r.result.duration,
             _convert_messages(r.result.messages),
             haskey(ctx.outputs, output_key) ? join(ctx.outputs[output_key]) : nothing,
+            _convert_perf(r.result.perf),
         ))
     end
 
@@ -467,5 +559,6 @@ function _run_tests(
             TestrunResultTestitem(k[1], k[2], profiles_by_item[k]) for k in order
         ],
         Dict{String,String}(id => join(chunks) for (id, chunks) in ctx.process_outputs),
+        _convert_coverage(coverage_results),
     )
 end

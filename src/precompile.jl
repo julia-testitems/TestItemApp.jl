@@ -72,8 +72,15 @@ using PrecompileTools: @setup_workload, @compile_workload
                     "--juliaup-channel", "release",
                     "--results-json", joinpath(good_dir, "results.json"),
                     "--progress", "log",
+                    "--output=all",
                     "--max-workers", "2",
+                    "--threads", "2",
                     "--coverage",
+                    "--coverage-lcov", joinpath(good_dir, "lcov.info"),
+                    "--junit-xml", joinpath(good_dir, "junit.xml"),
+                    "--gc-between-testitems",
+                    "--memory-threshold=0.9",
+                    "--schedule", "contiguous",
                     "--no-fail-on-detection-error",
                     "--julia-cmd", "julia",
                 ])
@@ -94,6 +101,8 @@ using PrecompileTools: @setup_workload, @compile_workload
                         Dict{String,TestItemControllers.TestItemDetail}(),
                         Dict{String,String}(),
                         :bar,
+                        :issues,
+                        false,
                         () -> nothing,
                         0, 0, 0, 0,
                         [],
@@ -125,15 +134,19 @@ using PrecompileTools: @setup_workload, @compile_workload
                 sample = TestrunResult(
                     [TestrunResultDefinitionError("msg", "file:///t.jl", 1, 1)],
                     [TestrunResultTestitem("double", "file:///t.jl", [
-                        TestrunResultTestitemProfile("Default", :passed, 1.5, nothing, nothing),
+                        TestrunResultTestitemProfile("Default", :passed, 1.5, nothing, nothing,
+                            TestrunResultPerfStats(1.5, 1024, 8, 0.1, 0.2, 0.0)),
                         TestrunResultTestitemProfile("Other", :failed, 2.5,
                             [TestrunResultMessage("failed", "1", "2", "file:///t.jl", 1, 1,
                                 [TestrunResultStackFrame("f", "file:///t.jl", 1, 1)])],
                             "captured output"),
                     ])],
                     Dict{String,String}("process-1" => "output"),
+                    [TestrunResultFileCoverage("file:///t.jl", Union{Nothing,Int}[nothing, 1, 0])],
                 )
                 Results.write_json(joinpath(good_dir, "sample.json"), sample)
+                TestItemControllers.write_junit_xml(joinpath(good_dir, "sample.xml"), sample; root=good_dir)
+                TestItemControllers.write_lcov(joinpath(good_dir, "sample.info"), sample)
 
                 # Progress bar rendering with the showvalues shapes engine.jl uses.
                 p = ProgressMeter.Progress(2;
