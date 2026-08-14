@@ -29,7 +29,7 @@ Or point it at a package folder:
 juliati path/to/MyPackage
 ```
 
-`juliati` walks the given folder, finds every `@testitem` (and `@testsetup`), groups them by package, launches parallel test processes and reports the results:
+`juliati` walks the given folder, finds every `@testitem` (along with the `@testmodule`s and `@testsnippet`s they take a dependency on via `setup`), groups them by package, launches parallel test processes and reports the results:
 
 ```
   Discovered 24 test item run(s) in 3 file(s)
