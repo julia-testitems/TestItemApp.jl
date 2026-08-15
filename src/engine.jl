@@ -310,6 +310,10 @@ function _run_tests(
                 textfile.content.content[item.code_range],
                 _line(code_pos),
                 _column(code_pos),
+                # Without this the CLI silently runs test items their author marked as
+                # skipped: discovery records `skip`, but dropping it here meant the test
+                # process was never told, so `skip` worked in the editor and nowhere else.
+                item.option_skip,
             )
             push!(testitems, (
                 detail = detail,
@@ -537,9 +541,15 @@ function _run_tests(
     # ── Result assembly ───────────────────────────────────────────────
     order = Tuple{String,String}[]
     profiles_by_item = Dict{Tuple{String,String},Vector{TestrunResultTestitemProfile}}()
+    # Grouping is by `(label, uri)`, which is what merges an item's results across profiles.
+    # The discovery id rides along rather than being derived later: it carries a package
+    # qualifier that cannot be recovered from a path, and it is what the JUnit report and
+    # anything keyed on test identity actually want.
+    id_by_item = Dict{Tuple{String,String},String}()
     for r in ctx.responses
         key = (r.testitem.label, r.testitem.uri)
         haskey(profiles_by_item, key) || push!(order, key)
+        get!(id_by_item, key, r.testitem.id)
         output_key = (r.testitem.id, r.test_env_id)
         push!(get!(Vector{TestrunResultTestitemProfile}, profiles_by_item, key), TestrunResultTestitemProfile(
             r.profile_name,
@@ -556,7 +566,7 @@ function _run_tests(
             TestrunResultDefinitionError(e.message, e.uri, e.line, e.column) for e in testerrors
         ],
         TestrunResultTestitem[
-            TestrunResultTestitem(k[1], k[2], profiles_by_item[k]) for k in order
+            TestrunResultTestitem(k[1], k[2], profiles_by_item[k], get(id_by_item, k, "")) for k in order
         ],
         Dict{String,String}(id => join(chunks) for (id, chunks) in ctx.process_outputs),
         _convert_coverage(coverage_results),

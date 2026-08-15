@@ -216,3 +216,49 @@ end
     @test result.testitems[1].name == "passing item"
     @test result.testitems[1].profiles[1].status == :passed
 end
+
+@testitem "skip reaches the test process" begin
+    using TestItemControllers.Results
+
+    # `skip` used to be dropped between discovery and the test process, so it worked in the
+    # editor and silently did nothing on the command line — the item ran anyway. Both bodies
+    # here call `error`, so if the skip is not honoured the test fails loudly rather than
+    # quietly passing.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "SkipPkg"))
+    result = TestItemApp.run_tests(
+        fixture;
+        progress_ui = :none,
+        julia_cmd = joinpath(Sys.BINDIR, "julia"),
+        timeout = 300,
+    )
+
+    @test isempty(result.definition_errors)
+    by_name = Dict(ti.name => ti for ti in result.testitems)
+
+    @test only(by_name["skipped by literal"].profiles).status == :skipped
+    # The expression is evaluated in the test process, not here.
+    @test only(by_name["skipped by expression"].profiles).status == :skipped
+    @test only(by_name["not skipped"].profiles).status == :passed
+end
+
+@testitem "results carry the discovery id" begin
+    using TestItemControllers.Results
+
+    # The id is recorded rather than derived: it carries a package qualifier that cannot be
+    # recovered from a file path, and the JUnit report and anything keyed on test identity
+    # depend on it being the real one.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+    result = TestItemApp.run_tests(
+        fixture;
+        progress_ui = :none,
+        julia_cmd = joinpath(Sys.BINDIR, "julia"),
+        timeout = 300,
+    )
+
+    by_name = Dict(ti.name => ti for ti in result.testitems)
+    id = by_name["passing item"].id
+
+    @test !isempty(id)
+    @test startswith(id, "AppTestPkg@")
+    @test endswith(id, "/test/app_tests.jl::passing item")
+end
