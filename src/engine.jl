@@ -48,6 +48,7 @@ mutable struct RunContext
     outputs::Dict{Tuple{String,String},Vector{String}}   # (testitem_id, test_env_id) → output chunks
     process_outputs::Dict{String,Vector{String}}
     launch_header_printed::Bool
+    launch_count::Int
     lock::ReentrantLock
 end
 
@@ -132,12 +133,13 @@ function _make_callbacks(ctx::RunContext)
         on_process_status_changed = (id, status) -> begin
             status == "Launching" || return
             lock(ctx.lock) do
+                ctx.launch_count += 1
                 if ctx.progress_ui == :bar
-                    if !ctx.launch_header_printed
-                        ctx.launch_header_printed = true
-                        printstyled("  Launching test processes"; color=:cyan)
-                    end
-                    printstyled("."; color=:cyan)
+                    n = ctx.launch_count
+                    # Rewrite the line in place so the count ticks up as processes launch.
+                    ctx.launch_header_printed && print("\r\e[2K")
+                    ctx.launch_header_printed = true
+                    printstyled("  Launching $n test process$(n == 1 ? "" : "es")..."; color=:cyan)
                 end
             end
         end,
@@ -407,14 +409,20 @@ function _run_tests(
     n_total = length(work_units)
 
     if progress_ui != :none
+        n_items = length(testitems)
         n_files = length(unique(i.detail.uri for i in testitems))
-        printstyled("  Discovered $n_total test item run(s) in $n_files file(s)\n"; color=:cyan)
+        msg = "  Discovered $n_items test item$(n_items == 1 ? "" : "s") in $n_files file$(n_files == 1 ? "" : "s")"
+        if n_total != n_items
+            n_profiles = length(environments)
+            msg *= " ($n_total run$(n_total == 1 ? "" : "s") across $n_profiles profile$(n_profiles == 1 ? "" : "s"))"
+        end
+        printstyled(msg, "\n"; color=:cyan)
     end
 
     # ── Execution ─────────────────────────────────────────────────────
     p = ProgressMeter.Progress(n_total;
         barglyphs = ProgressMeter.BarGlyphs('┣', '━', '╸', ' ', '┫'),
-        color = :green, enabled = progress_ui == :bar)
+        barlen = 40, color = :green, enabled = progress_ui == :bar)
 
     ctx = RunContext(
         testitems_by_id,
@@ -428,6 +436,7 @@ function _run_tests(
         Dict{Tuple{String,String},Vector{String}}(),
         Dict{String,Vector{String}}(),
         false,
+        0,
         ReentrantLock(),
     )
     ctx.progressbar_next = () -> begin

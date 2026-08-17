@@ -32,8 +32,8 @@ juliati path/to/MyPackage
 `juliati` walks the given folder, finds every `@testitem` (along with the `@testmodule`s and `@testsnippet`s they take a dependency on via `setup`), groups them by package, launches parallel test processes and reports the results:
 
 ```
-  Discovered 24 test item run(s) in 3 file(s)
-  Launching test processes....
+  Discovered 24 test items in 3 files
+  Launching 4 test processes...
   Progress: 24/24 (23 passed, 1 failed)
 
 24 tests ran, 23 passed, 1 failed.

@@ -109,6 +109,7 @@ using PrecompileTools: @setup_workload, @compile_workload
                         Dict{Tuple{String,String},Vector{String}}(),
                         Dict{String,Vector{String}}(),
                         false,
+                        0,
                         ReentrantLock(),
                     )
                     controller = TestItemControllers.TestItemController(_make_callbacks(ctx))
@@ -150,7 +151,7 @@ using PrecompileTools: @setup_workload, @compile_workload
 
                 # Progress bar rendering with the showvalues shapes engine.jl uses.
                 p = ProgressMeter.Progress(2;
-                    barglyphs = ProgressMeter.BarGlyphs('┣', '━', '╸', ' ', '┫'),
+                    barglyphs = ProgressMeter.BarGlyphs('┣', '━', '╸', ' ', '┫'), barlen = 40,
                     color = :green, enabled = true, output = devnull)
                 ProgressMeter.next!(p, showvalues = [(Symbol("Progress"), "1/2 (1 passed)")])
                 ProgressMeter.next!(p, showvalues = [(Symbol("Progress"), "2/2 (1 passed, 1 failed)")])
