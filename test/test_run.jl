@@ -1,5 +1,5 @@
 @testitem "run_tests on fixture package" begin
-    using TestItemControllers.Results
+    using TestItemRuns
 
     fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
     result = TestItemApp.run_tests(
@@ -31,16 +31,15 @@
 
     # Round-trip through the shared JSON serialization
     io = IOBuffer()
-    Results.write_json(io, result)
-    roundtripped = Results.read_json(IOBuffer(String(take!(io))))
+    write_json(io, result)
+    roundtripped = read_json(IOBuffer(String(take!(io))))
     @test length(roundtripped.testitems) == 2
     @test Dict(ti.name => ti.profiles[1].status for ti in roundtripped.testitems) ==
           Dict("passing item" => :passed, "failing item" => :failed)
 end
 
 @testitem "run_tests collects coverage" begin
-    using TestItemControllers
-    using TestItemControllers.Results
+    using TestItemRuns
 
     # `--coverage` used to fail every single test item: `execute_testrun` was called
     # without `coverage_root_uris`, and the test process then iterated `nothing`.
@@ -70,7 +69,7 @@ end
     # repository, which is how a fully covered package gets reported as 0%.
     mktempdir() do dir
         path = joinpath(dir, "lcov.info")
-        @test TestItemControllers.write_lcov(path, result; root=fixture) == true
+        @test write_lcov(path, result; root=fixture) == true
         text = read(path, String)
         @test occursin("SF:src/AppTestPkg.jl", text)
         @test !occursin("SF:/", text)              # no unix absolute path
@@ -80,7 +79,7 @@ end
 end
 
 @testitem "run_tests without coverage carries none" begin
-    using TestItemControllers
+    using TestItemRuns
     fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
     result = TestItemApp.run_tests(
         fixture;
@@ -91,7 +90,7 @@ end
     )
     @test result.coverage === nothing
     mktempdir() do dir
-        @test TestItemControllers.write_lcov(joinpath(dir, "lcov.info"), result) == false
+        @test write_lcov(joinpath(dir, "lcov.info"), result) == false
     end
 end
 
@@ -237,7 +236,7 @@ end
 end
 
 @testitem "run_tests filter selects items" begin
-    using TestItemControllers.Results
+    using TestItemRuns
 
     fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
     result = TestItemApp.run_tests(
@@ -254,7 +253,7 @@ end
 end
 
 @testitem "skip reaches the test process" begin
-    using TestItemControllers.Results
+    using TestItemRuns
 
     # `skip` used to be dropped between discovery and the test process, so it worked in the
     # editor and silently did nothing on the command line — the item ran anyway. Both bodies
@@ -278,7 +277,7 @@ end
 end
 
 @testitem "results carry the discovery id" begin
-    using TestItemControllers.Results
+    using TestItemRuns
 
     # The id is recorded rather than derived: it carries a package qualifier that cannot be
     # recovered from a file path, and the JUnit report and anything keyed on test identity
@@ -399,4 +398,52 @@ end
 @testitem "run_tests rejects an invalid log_level" begin
     fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
     @test_throws ErrorException TestItemApp.run_tests(fixture; log_level = :Verbose, progress_ui = :none)
+end
+
+@testitem "a cancelled run returns its partial result and reports it" begin
+    using TestItemRuns
+    using TestItemRuns.CancellationTokens: CancellationTokenSource, cancel, get_token
+
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+    cts = CancellationTokenSource()
+    cancel(cts)   # cancelled before it starts: no waiting, same code path
+    result, reporter = TestItemApp._run_tests_reported(
+        fixture;
+        progress_ui = :none,
+        token = get_token(cts),
+        julia_cmd = joinpath(Sys.BINDIR, "julia"),
+        timeout = 300,
+    )
+    @test result isa TestrunResult
+    @test reporter.run_status == :cancelled
+    @test all(p.status == :skipped for ti in result.testitems for p in ti.profiles)
+end
+
+@testitem "run_cancellable runs to completion without a terminal" begin
+    # No TTY here, so there is nothing to watch for; the value comes back untouched.
+    value, cancelled = TestItemApp.run_cancellable(token -> (token, 42))
+    @test value[2] == 42
+    @test !cancelled
+    @test TestItemApp.CANCEL_EXIT_CODE == 130
+    @test TestItemApp._is_cancel_key(0x1b) && TestItemApp._is_cancel_key(UInt8('q'))
+    @test !TestItemApp._is_cancel_key(UInt8('x'))
+end
+
+@testitem "--failfast exits 1, not as a cancelled run" begin
+    # A failfast run is cancelled underneath, and juliati maps a cancelled run to exit 130.
+    # Reporting a plain test failure as "the user interrupted this" would be a silent CI
+    # regression, so the exit code is what this pins down.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "FailfastPkg"))
+
+    exit_code = TestItemApp.real_main([
+        fixture,
+        "--failfast",
+        "--progress", "none",
+        "--output", "none",
+        "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+        "--max-workers", "1",
+    ])
+
+    @test exit_code == 1
+    @test exit_code != TestItemApp.CANCEL_EXIT_CODE
 end

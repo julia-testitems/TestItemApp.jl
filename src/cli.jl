@@ -66,10 +66,15 @@ Options:
                                  Minimum log level for the code under test, i.e. the
                                  package and the test item bodies (default: info).
   --debug                        Enable debug logging for the test infrastructure itself
-                                 (TestItemApp and TestItemControllers). This says nothing
-                                 about the code under test; use --log-level for that.
+                                 (TestItemApp, TestItemRuns and TestItemControllers).
+                                 This says nothing about the code under test; use
+                                 --log-level for that.
 
-Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error.
+Press Esc (or q) or Ctrl-C while tests are running to cancel the run; test processes are
+shut down cleanly and the results collected so far are still written.
+
+Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error;
+130 run cancelled.
 """
 
 _cli_error(msg) = throw(CliError(msg))
@@ -85,7 +90,7 @@ const VALUE_TAKING_OPTIONS = (
 )
 
 # What `--debug` turns on: the infrastructure's own modules, not the code under test.
-const INFRASTRUCTURE_DEBUG_MODULES = "TestItemApp,TestItemControllers"
+const INFRASTRUCTURE_DEBUG_MODULES = "TestItemApp,TestItemRuns,TestItemControllers"
 
 # The `--log-level` values, mapped to the symbols `TestRunItem.log_level` expects. This is
 # the level applied around the *test item body* in the test process, so it governs the
@@ -330,35 +335,40 @@ function run_command(args::Vector{String})::Int
 
     isdir(opts.path) || _cli_error("no such directory: $(opts.path)")
 
-    result = run_tests(
-        opts.path;
-        filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
-        max_workers = opts.max_workers,
-        timeout = opts.timeout,
-        activation_timeout = opts.activation_timeout,
-        fail_on_detection_error = opts.fail_on_detection_error,
-        failfast = opts.failfast,
-        progress_ui = opts.progress,
-        output_mode = opts.output,
-        stream = opts.stream,
-        environments = [RunProfile(opts.profile_name, opts.coverage, opts.env)],
-        julia_cmd = opts.julia_cmd,
-        julia_num_threads = opts.threads,
-        check_bounds = opts.check_bounds,
-        gc_between_testitems = opts.gc_between_testitems,
-        memory_threshold = opts.memory_threshold,
-        schedule = opts.schedule,
-        log_level = opts.log_level,
-    )
+    # The run executes on its own task so this one can watch for Esc / Ctrl-C.
+    (result, reporter), cancelled_by_user = run_cancellable() do token
+        _run_tests_reported(
+            opts.path;
+            filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
+            max_workers = opts.max_workers,
+            timeout = opts.timeout,
+            activation_timeout = opts.activation_timeout,
+            fail_on_detection_error = opts.fail_on_detection_error,
+            failfast = opts.failfast,
+            progress_ui = opts.progress,
+            output_mode = opts.output,
+            stream = opts.stream,
+            environments = [RunProfile(opts.profile_name, opts.coverage, opts.env)],
+            julia_cmd = opts.julia_cmd,
+            julia_num_threads = opts.threads,
+            check_bounds = opts.check_bounds,
+            gc_between_testitems = opts.gc_between_testitems,
+            memory_threshold = opts.memory_threshold,
+            schedule = opts.schedule,
+            log_level = opts.log_level,
+            token = token,
+        )
+    end
 
+    # Result files are written even for a cancelled run: they hold whatever finished.
     if opts.results_json !== nothing
-        Results.write_json(opts.results_json, result)
+        write_json(opts.results_json, result)
     end
 
     if opts.junit_xml !== nothing
         # `root` must be absolute: JUnit classnames are relativized against it with
         # `relpath`, which does not resolve a relative root against the working directory.
-        TestItemControllers.write_junit_xml(opts.junit_xml, result; root=abspath(opts.path))
+        write_junit_xml(opts.junit_xml, result; root=abspath(opts.path))
     end
 
     if opts.coverage_lcov !== nothing
@@ -366,10 +376,14 @@ function run_command(args::Vector{String})::Int
         # `genhtml` all match `SF:` paths against paths in the repository, and the absolute
         # paths of a CI runner match nothing at all — which is how a fully covered package
         # ends up reported as 0%.
-        if !TestItemControllers.write_lcov(opts.coverage_lcov, result; root=abspath(opts.path))
+        if !write_lcov(opts.coverage_lcov, result; root=abspath(opts.path))
             @warn "No coverage data was collected, $(opts.coverage_lcov) not written"
         end
     end
+
+    # A failfast run is reported as completed, not cancelled, so this only fires when the
+    # user actually interrupted the run.
+    (cancelled_by_user || reporter.run_status == :cancelled) && return CANCEL_EXIT_CODE
 
     # A skipped test item is not a failure — `skip=` exists so that a run can leave an item
     # out on purpose, and both `Pkg.test` and `@run_package_tests` (which record a skip as

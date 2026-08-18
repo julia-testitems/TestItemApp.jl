@@ -1,5 +1,5 @@
 # Precompile workload: run the CLI paths juliati hits on every invocation —
-# arg parsing, test item discovery, terminal reporting, the controller reactor
+# arg parsing, test item discovery, terminal reporting, the test session
 # and result serialization — without ever spawning child Julia processes.
 
 using PrecompileTools: @setup_workload, @compile_workload
@@ -94,41 +94,14 @@ using PrecompileTools: @setup_workload, @compile_workload
                 run_tests(broken_dir; progress_ui = :log, store_path = mktempdir())
                 run_tests(good_dir; progress_ui = :none, filter = i -> false, store_path = mktempdir())
 
-                # Controller reactor start/stop and the execute_testrun entry
-                # path (empty run: returns before any process is spawned).
+                # Session start/stop and an empty run through the console reporter (returns
+                # before any process is spawned).
                 Logging.with_logger(Logging.NullLogger()) do
-                    ctx = RunContext(
-                        Dict{String,TestItemControllers.TestItemDetail}(),
-                        Dict{String,String}(),
-                        :bar,
-                        :issues,
-                        false,
-                        () -> nothing,
-                        0, 0, 0, 0,
-                        [],
-                        Dict{Tuple{String,String},Vector{String}}(),
-                        Dict{String,Vector{String}}(),
-                        nothing,
-                        false,
-                        0,
-                        ReentrantLock(),
-                    )
-                    controller = TestItemControllers.TestItemController(_make_callbacks(ctx))
-                    reactor_task = @async run(controller)
+                    session = TestItemRuns.TestSession(; on_event = ConsoleReporter(:bar, :issues, false))
                     try
-                        TestItemControllers.execute_testrun(
-                            controller,
-                            "precompile-workload",
-                            TestItemControllers.TestEnvironment[],
-                            TestItemControllers.TestItemDetail[],
-                            TestItemControllers.TestRunItem[],
-                            TestItemControllers.TestSetupDetail[],
-                            1,
-                            nothing,
-                        )
+                        TestItemRuns.run!(session, TestItemRuns.TestItem[])
                     finally
-                        TestItemControllers.shutdown(controller)
-                        wait_for_shutdown(controller, reactor_task)
+                        close(session)
                     end
                 end
 
@@ -146,11 +119,11 @@ using PrecompileTools: @setup_workload, @compile_workload
                     Dict{String,String}("process-1" => "output"),
                     [TestrunResultFileCoverage("file:///t.jl", Union{Nothing,Int}[nothing, 1, 0])],
                 )
-                Results.write_json(joinpath(good_dir, "sample.json"), sample)
-                TestItemControllers.write_junit_xml(joinpath(good_dir, "sample.xml"), sample; root=good_dir)
-                TestItemControllers.write_lcov(joinpath(good_dir, "sample.info"), sample; root=good_dir)
+                write_json(joinpath(good_dir, "sample.json"), sample)
+                write_junit_xml(joinpath(good_dir, "sample.xml"), sample; root=good_dir)
+                write_lcov(joinpath(good_dir, "sample.info"), sample; root=good_dir)
 
-                # Progress bar rendering with the showvalues shapes engine.jl uses.
+                # Progress bar rendering with the showvalues shapes the console reporter uses.
                 p = ProgressMeter.Progress(2;
                     barglyphs = ProgressMeter.BarGlyphs('┣', '━', '╸', ' ', '┫'), barlen = 40,
                     color = :green, enabled = true, output = devnull)
