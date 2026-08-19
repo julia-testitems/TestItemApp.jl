@@ -262,3 +262,40 @@ end
     @test startswith(id, "AppTestPkg@")
     @test endswith(id, "/test/app_tests.jl::passing item")
 end
+
+@testitem "run_tests failfast stops after the first failing test item" begin
+    # Every item in the fixture fails, so exactly one of them runs and the rest are
+    # skipped no matter which one the controller picks first.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "FailfastPkg"))
+    result = TestItemApp.run_tests(
+        fixture;
+        failfast = true,
+        max_workers = 1,
+        progress_ui = :none,
+        julia_cmd = joinpath(Sys.BINDIR, "julia"),
+        timeout = 300,
+    )
+
+    statuses = [ti.profiles[1].status for ti in result.testitems]
+
+    @test length(statuses) == 3
+    @test count(==(:failed), statuses) == 1
+    # The remaining work of a cancelled run is what the controller reports as skipped
+    @test count(==(:skipped), statuses) == 2
+end
+
+@testitem "run_tests without failfast runs every test item" begin
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "FailfastPkg"))
+    result = TestItemApp.run_tests(
+        fixture;
+        max_workers = 1,
+        progress_ui = :none,
+        julia_cmd = joinpath(Sys.BINDIR, "julia"),
+        timeout = 300,
+    )
+
+    statuses = [ti.profiles[1].status for ti in result.testitems]
+
+    @test length(statuses) == 3
+    @test all(==(:failed), statuses)
+end
