@@ -1,6 +1,6 @@
 name = "TestItemApp"
 uuid = "3c47ebe9-cd35-4ffd-8ef3-ab920089c471"
-version = "1.0.0"
+version = "1.0.1-DEV"
 authors = ["David Anthoff <anthoff@berkeley.edu>"]
 
 [deps]
