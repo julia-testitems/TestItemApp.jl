@@ -325,7 +325,14 @@ function run_command(args::Vector{String})::Int
         end
     end
 
-    any_failed = any(p.status != :passed for ti in result.testitems for p in ti.profiles)
+    # A skipped test item is not a failure — `skip=` exists so that a run can leave an item
+    # out on purpose, and both `Pkg.test` and `@run_package_tests` (which record a skip as
+    # `Test.Broken`) succeed on one. Every other non-passing status does fail the run,
+    # including any that gets added later, which is the safe direction to be wrong in.
+    any_failed = any(
+        p.status != :passed && p.status != :skipped
+        for ti in result.testitems for p in ti.profiles
+    )
     return (any_failed || !isempty(result.definition_errors)) ? 1 : 0
 end
 

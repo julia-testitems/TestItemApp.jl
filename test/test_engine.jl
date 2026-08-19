@@ -299,3 +299,35 @@ end
     @test length(statuses) == 3
     @test all(==(:failed), statuses)
 end
+
+@testitem "A skipped test item does not fail the run" begin
+    # `skip=` exists so that a run can leave an item out on purpose, so a suite whose only
+    # non-passing items are skipped has to exit 0 — otherwise `skip=` is unusable in CI,
+    # which is the one place it matters. TestItemRunner's own suite is exactly this shape.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "SkipPkg"))
+
+    exit_code = TestItemApp.real_main([
+        fixture,
+        "--progress", "none",
+        "--output", "none",
+        "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+        "--max-workers", "1",
+    ])
+
+    @test exit_code == 0
+end
+
+@testitem "A failing test item still fails the run" begin
+    # The other side of the skipped-item exemption: nothing else stops counting.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+
+    exit_code = TestItemApp.real_main([
+        fixture,
+        "--progress", "none",
+        "--output", "none",
+        "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+        "--max-workers", "1",
+    ])
+
+    @test exit_code == 1
+end
