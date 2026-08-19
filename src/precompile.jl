@@ -108,6 +108,7 @@ using PrecompileTools: @setup_workload, @compile_workload
                         [],
                         Dict{Tuple{String,String},Vector{String}}(),
                         Dict{String,Vector{String}}(),
+                        nothing,
                         false,
                         0,
                         ReentrantLock(),

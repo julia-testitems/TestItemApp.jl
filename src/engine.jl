@@ -47,6 +47,8 @@ mutable struct RunContext
     responses::Vector{Any}
     outputs::Dict{Tuple{String,String},Vector{String}}   # (testitem_id, test_env_id) → output chunks
     process_outputs::Dict{String,Vector{String}}
+    # Cancelled by the first failing test item under `failfast`, `nothing` otherwise.
+    failfast_source::Any
     launch_header_printed::Bool
     launch_count::Int
     lock::ReentrantLock
@@ -87,6 +89,11 @@ function _make_callbacks(ctx::RunContext)
             status == :failed && (ctx.count_fail += 1)
             status == :errored && (ctx.count_error += 1)
             status == :skipped && (ctx.count_skipped += 1)
+            # Cancelling the run is what makes the controller report every work unit that
+            # has not started yet as skipped, so `failfast` needs nothing else.
+            if ctx.failfast_source !== nothing && status in (:failed, :errored)
+                TestItemControllers.CancellationTokens.cancel(ctx.failfast_source)
+            end
             if ctx.progress_ui == :log
                 symbol = status == :passed ? "✓" : status == :skipped ? "⊘" : "✗"
                 duration_string = duration !== nothing ? " ($(duration)ms)" : ""
@@ -220,6 +227,9 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
 - `timeout` — per-test-item timeout in seconds, or `nothing` for no timeout.
 - `fail_on_detection_error::Bool` — when `true` (default), skip running if any test item
   fails to parse; the errors are reported in the result either way.
+- `failfast::Bool` — stop the run as soon as a test item fails or errors. Test items that
+  had not started are reported as skipped; ones already running in another test process
+  are cut short with their process and do not appear in the result at all.
 - `print_failed_results::Bool`, `print_summary::Bool` — terminal reporting toggles.
 - `progress_ui::Symbol` — `:bar`, `:log`, or `:none` (`:none` also silences the toggles above).
 - `output_mode::Symbol` — which captured test item output is echoed to the console:
@@ -261,6 +271,7 @@ function _run_tests(
         max_workers::Int = DEFAULT_MAX_WORKERS,
         timeout = nothing,
         fail_on_detection_error::Bool = true,
+        failfast::Bool = false,
         print_failed_results::Bool = true,
         print_summary::Bool = true,
         progress_ui::Symbol = :bar,
@@ -419,6 +430,19 @@ function _run_tests(
         printstyled(msg, "\n"; color=:cyan)
     end
 
+    # `failfast` cancels the run from a result callback, which needs a source of its own.
+    # Linking it to the caller's token keeps an outside cancellation working as before.
+    failfast_source = if !failfast
+        nothing
+    elseif token === nothing
+        TestItemControllers.CancellationTokens.CancellationTokenSource()
+    else
+        TestItemControllers.CancellationTokens.CancellationTokenSource(token)
+    end
+    run_token = failfast_source === nothing ?
+        token :
+        TestItemControllers.CancellationTokens.get_token(failfast_source)
+
     # ── Execution ─────────────────────────────────────────────────────
     p = ProgressMeter.Progress(n_total;
         barglyphs = ProgressMeter.BarGlyphs('┣', '━', '╸', ' ', '┫'),
@@ -435,6 +459,7 @@ function _run_tests(
         [],
         Dict{Tuple{String,String},Vector{String}}(),
         Dict{String,Vector{String}}(),
+        failfast_source,
         false,
         0,
         ReentrantLock(),
@@ -481,7 +506,7 @@ function _run_tests(
                 work_units,
                 test_setups,
                 max_workers,
-                token;
+                run_token;
                 coverage_root_uris = coverage_root_uris,
                 gc_between_testitems = gc_between_testitems,
                 memory_threshold = memory_threshold,

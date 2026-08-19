@@ -47,6 +47,10 @@ Options:
                                  "duration" (default) orders by measured duration, past
                                  failures and warm setups; "contiguous" is the old
                                  chunk-by-position behavior.
+  --failfast                     Stop the run as soon as a test item fails or errors. Test
+                                 items that had not started are reported as skipped; ones
+                                 already running in another test process are cut short and
+                                 do not appear in the results at all.
   --fail-on-detection-error      Do not run any tests if a test item fails to parse (default).
   --no-fail-on-detection-error   Run tests even if some test items fail to parse.
   --julia-cmd <path>             Julia executable used for test processes (default: "julia").
@@ -113,6 +117,7 @@ function parse_run_args(args::Vector{String})
     memory_threshold = nothing
     schedule = :duration
     fail_on_detection_error = true
+    failfast = false
     julia_cmd = "julia"
     check_bounds = nothing
     debug = false
@@ -199,6 +204,8 @@ function parse_run_args(args::Vector{String})
             value = next_value(a)
             value in ("duration", "contiguous") || _cli_error("invalid value for --schedule: $value (expected duration or contiguous)")
             schedule = Symbol(value)
+        elseif a == "--failfast"
+            failfast = true
         elseif a == "--fail-on-detection-error"
             fail_on_detection_error = true
         elseif a == "--no-fail-on-detection-error"
@@ -244,6 +251,7 @@ function parse_run_args(args::Vector{String})
         memory_threshold = memory_threshold,
         schedule = schedule,
         fail_on_detection_error = fail_on_detection_error,
+        failfast = failfast,
         julia_cmd = julia_cmd,
         check_bounds = check_bounds,
         debug = debug,
@@ -288,6 +296,7 @@ function run_command(args::Vector{String})::Int
         max_workers = opts.max_workers,
         timeout = opts.timeout,
         fail_on_detection_error = opts.fail_on_detection_error,
+        failfast = opts.failfast,
         progress_ui = opts.progress,
         output_mode = opts.output,
         stream = opts.stream,

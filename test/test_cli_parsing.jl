@@ -17,6 +17,7 @@
     @test opts.memory_threshold === nothing
     @test opts.schedule == :duration
     @test opts.fail_on_detection_error == true
+    @test opts.failfast == false
     @test opts.julia_cmd == "julia"
     @test opts.check_bounds === nothing
     @test opts.debug == false
@@ -199,4 +200,14 @@ end
     # it would actually run tests in the current directory.)
     @test TestItemApp.real_main(["--progress", "fancy"]) == 2
     @test TestItemApp.real_main(["frobnicate"]) == 2  # no such directory
+end
+
+@testitem "parse_run_args failfast" begin
+    @test TestItemApp.parse_run_args(String[]).failfast == false
+    @test TestItemApp.parse_run_args(String["--failfast"]).failfast == true
+
+    # `--failfast` takes no value, so it must not swallow the path that follows it
+    opts = TestItemApp.parse_run_args(String["--failfast", "some/path"])
+    @test opts.failfast == true
+    @test opts.path == "some/path"
 end
