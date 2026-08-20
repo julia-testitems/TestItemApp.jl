@@ -367,3 +367,36 @@ end
 
     @test exit_code == 1
 end
+
+@testitem "log_level controls the tested code's log output" begin
+    include(joinpath(@__DIR__, "capture_stdout.jl"))
+
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "LogLevelPkg"))
+    run_at(level) = capture_stdout() do
+        TestItemApp.run_tests(
+            fixture;
+            log_level = level,
+            progress_ui = :none,
+            output_mode = :all,
+            julia_cmd = joinpath(Sys.BINDIR, "julia"),
+            timeout = 300,
+            max_workers = 1,
+        )
+    end
+
+    # `:Debug` reaches both the package under test and the test item body, and needs no
+    # JULIA_DEBUG module name to do it.
+    at_debug = run_at(:Debug)
+    @test occursin("LogLevelPkg computing a sum", at_debug)
+    @test occursin("message from the test item body", at_debug)
+
+    # The default keeps them quiet.
+    at_info = run_at(:Info)
+    @test !occursin("LogLevelPkg computing a sum", at_info)
+    @test !occursin("message from the test item body", at_info)
+end
+
+@testitem "run_tests rejects an invalid log_level" begin
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+    @test_throws ErrorException TestItemApp.run_tests(fixture; log_level = :Verbose, progress_ui = :none)
+end

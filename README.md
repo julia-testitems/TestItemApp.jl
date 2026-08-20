@@ -66,7 +66,8 @@ The exit code is `0` when everything passed, `1` on test failures or definition 
 | `--julia-cmd <path>` | Julia executable used for test processes (default: `julia`). |
 | `--check-bounds <auto\|yes>` | `--check-bounds` mode for test processes. `auto` (default) respects `@inbounds` and reuses existing precompile caches; `yes` forces bounds checks everywhere (the `Pkg.test` behavior) but precompiles the environment into a separate cache slot on the first run. |
 | `--fail-on-detection-error` / `--no-fail-on-detection-error` | Whether to refuse to run any tests when a test item fails to parse (default: fail). |
-| `--debug` | Enable debug logging. |
+| `--log-level <debug\|info\|warn\|error>` | Minimum log level for the code under test — the package and the test item bodies (default: `info`). |
+| `--debug` | Enable debug logging for the test infrastructure itself (TestItemApp and TestItemControllers). Says nothing about the code under test; use `--log-level` for that. |
 | `--help`, `--version` | Show help / version. |
 
 Options can be written as `--opt value` or `--opt=value`.
@@ -95,6 +96,20 @@ For debugging a single test item, `--stream` prints its output as it happens rat
 ```sh
 juliati --filter 'name == "the slow one"' --max-workers 1 --stream --progress log
 ```
+
+### Log levels
+
+Two separate things can be called "debug logging", and `juliati` keeps them on separate flags:
+
+- `--log-level` sets the minimum level for **the code under test** — your package and the test item bodies. `--log-level debug` makes every `@debug` in them visible, without you having to name any module.
+- `--debug` turns on debug logging for **the test infrastructure itself** (TestItemApp and TestItemControllers): process launches, scheduling, timeouts. Reach for it when a run hangs or a test process dies, not when you want to see your own package's logging.
+
+```sh
+# Show my package's @debug output for one test item
+juliati --filter 'name == "the flaky one"' --log-level debug --max-workers 1
+```
+
+`--log-level` applies a `ConsoleLogger` around the test item, so it raises the level for everything the item runs. `JULIA_DEBUG` still works if you want to scope debug output to specific modules instead — pass it through to the test processes with `--env JULIA_DEBUG=MyPkg`.
 
 ### Reports
 

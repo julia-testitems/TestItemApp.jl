@@ -58,7 +58,12 @@ Options:
                                  respects @inbounds and reuses existing precompile caches;
                                  "yes" forces bounds checks everywhere (Pkg.test behavior)
                                  but precompiles into a separate cache slot on first run.
-  --debug                        Enable debug logging.
+  --log-level <debug|info|warn|error>
+                                 Minimum log level for the code under test, i.e. the
+                                 package and the test item bodies (default: info).
+  --debug                        Enable debug logging for the test infrastructure itself
+                                 (TestItemApp and TestItemControllers). This says nothing
+                                 about the code under test; use --log-level for that.
 
 Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error.
 """
@@ -72,7 +77,21 @@ const VALUE_TAKING_OPTIONS = (
     "--filter", "--timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
     "--max-workers", "--threads", "--coverage-lcov", "--memory-threshold", "--schedule",
-    "--julia-cmd", "--check-bounds",
+    "--julia-cmd", "--check-bounds", "--log-level",
+)
+
+# What `--debug` turns on: the infrastructure's own modules, not the code under test.
+const INFRASTRUCTURE_DEBUG_MODULES = "TestItemApp,TestItemControllers"
+
+# The `--log-level` values, mapped to the symbols `TestRunItem.log_level` expects. This is
+# the level applied around the *test item body* in the test process, so it governs the
+# package under test and the tests themselves -- not the controller's own logging, which
+# `--debug` handles.
+const LOG_LEVELS = Dict(
+    "debug" => :Debug,
+    "info"  => :Info,
+    "warn"  => :Warn,
+    "error" => :Error,
 )
 
 # There is no timeout at all unless one is asked for, which turns a hung test item into a
@@ -120,6 +139,7 @@ function parse_run_args(args::Vector{String})
     failfast = false
     julia_cmd = "julia"
     check_bounds = nothing
+    log_level = :Info
     debug = false
 
     i = 0
@@ -216,6 +236,11 @@ function parse_run_args(args::Vector{String})
             value = next_value(a)
             value in ("auto", "yes") || _cli_error("invalid value for --check-bounds: $value (expected auto or yes)")
             check_bounds = value
+        elseif a == "--log-level"
+            value = next_value(a)
+            haskey(LOG_LEVELS, value) ||
+                _cli_error("invalid value for --log-level: $value (expected debug, info, warn or error)")
+            log_level = LOG_LEVELS[value]
         elseif a == "--debug"
             debug = true
         elseif startswith(a, "-")
@@ -254,6 +279,7 @@ function parse_run_args(args::Vector{String})
         failfast = failfast,
         julia_cmd = julia_cmd,
         check_bounds = check_bounds,
+        log_level = log_level,
         debug = debug,
     )
 end
@@ -285,7 +311,11 @@ function run_command(args::Vector{String})::Int
     opts = parse_run_args(args)
 
     if opts.debug
-        ENV["JULIA_DEBUG"] = "TestItemApp,TestItemControllers"
+        # Append rather than assign: a user who already set JULIA_DEBUG for their own
+        # modules must not lose it by also asking for infrastructure logging.
+        existing = get(ENV, "JULIA_DEBUG", "")
+        ENV["JULIA_DEBUG"] = isempty(existing) ? INFRASTRUCTURE_DEBUG_MODULES :
+                                                 "$existing,$INFRASTRUCTURE_DEBUG_MODULES"
     end
 
     isdir(opts.path) || _cli_error("no such directory: $(opts.path)")
@@ -307,6 +337,7 @@ function run_command(args::Vector{String})::Int
         gc_between_testitems = opts.gc_between_testitems,
         memory_threshold = opts.memory_threshold,
         schedule = opts.schedule,
+        log_level = opts.log_level,
     )
 
     if opts.results_json !== nothing
