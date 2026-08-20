@@ -148,7 +148,7 @@ using PrecompileTools: @setup_workload, @compile_workload
                 )
                 Results.write_json(joinpath(good_dir, "sample.json"), sample)
                 TestItemControllers.write_junit_xml(joinpath(good_dir, "sample.xml"), sample; root=good_dir)
-                TestItemControllers.write_lcov(joinpath(good_dir, "sample.info"), sample)
+                TestItemControllers.write_lcov(joinpath(good_dir, "sample.info"), sample; root=good_dir)
 
                 # Progress bar rendering with the showvalues shapes engine.jl uses.
                 p = ProgressMeter.Progress(2;

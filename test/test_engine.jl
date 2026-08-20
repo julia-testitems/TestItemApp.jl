@@ -60,12 +60,21 @@ end
     covered = only(fc for fc in result.coverage if endswith(fc.uri, "AppTestPkg.jl"))
     @test any(c -> c isa Int && c > 0, covered.coverage)
 
-    # ...and the LCOV wrapper turns it into a file a coverage service can read.
+    # Coverage roots name the package's source folders, not the package root, so the
+    # package's own test files stay out of the report — counting them as covered source
+    # moves the reported percentage for no good reason.
+    @test !any(occursin("/test/", fc.uri) for fc in result.coverage)
+
+    # ...and the LCOV wrapper turns it into a file a coverage service can read. `SF:` paths
+    # have to be repo-relative: the absolute paths of a CI runner match nothing in the
+    # repository, which is how a fully covered package gets reported as 0%.
     mktempdir() do dir
         path = joinpath(dir, "lcov.info")
-        @test TestItemControllers.write_lcov(path, result) == true
+        @test TestItemControllers.write_lcov(path, result; root=fixture) == true
         text = read(path, String)
-        @test occursin("SF:", text)
+        @test occursin("SF:src/AppTestPkg.jl", text)
+        @test !occursin("SF:/", text)              # no unix absolute path
+        @test !occursin(r"SF:[a-zA-Z]:/", text)    # no windows drive letter
         @test occursin("end_of_record", text)
     end
 end
@@ -130,6 +139,33 @@ end
         closed = [m[1] for m in eachmatch(r"</([a-z-]+)>", text)]
         @test sort(unique(closed)) ⊆ sort(unique(opened))
         @test count("<testcase", text) == 2
+    end
+end
+
+@testitem "--coverage-lcov writes repo-relative source paths" begin
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+    mktempdir() do dir
+        path = joinpath(dir, "lcov.info")
+        exit_code = TestItemApp.real_main([
+            fixture,
+            "--coverage-lcov", path,
+            "--progress", "none",
+            "--output", "none",
+            "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+            "--max-workers", "1",
+        ])
+        @test exit_code == 1  # the fixture has one deliberately failing item
+
+        @test isfile(path)
+        text = read(path, String)
+        sfs = [m[1] for m in eachmatch(r"SF:(.*)", text)]
+
+        # This is the shape a coverage service can actually match against the repository —
+        # relative, forward slashes, package source only.
+        @test !isempty(sfs)
+        @test all(sf -> startswith(sf, "src/"), sfs)
+        @test "src/AppTestPkg.jl" in sfs
+        @test !occursin("\\", text)
     end
 end
 
