@@ -20,6 +20,7 @@
     @test opts.failfast == false
     @test opts.julia_cmd == "julia"
     @test opts.check_bounds === nothing
+    @test opts.log_level == :Info
     @test opts.debug == false
 end
 
@@ -146,6 +147,7 @@ end
         "--progress", "log",
         "--max-workers", "4",
         "--no-fail-on-detection-error",
+        "--log-level", "debug",
         "--debug",
     ])
     @test opts.path == "/some/path"
@@ -161,6 +163,7 @@ end
     @test opts.progress == :log
     @test opts.max_workers == 4
     @test opts.fail_on_detection_error == false
+    @test opts.log_level == :Debug
     @test opts.debug == true
 end
 
@@ -210,4 +213,27 @@ end
     opts = TestItemApp.parse_run_args(String["--failfast", "some/path"])
     @test opts.failfast == true
     @test opts.path == "some/path"
+end
+
+@testitem "parse_run_args --log-level" begin
+    for (value, expected) in ("debug" => :Debug, "info" => :Info, "warn" => :Warn, "error" => :Error)
+        @test TestItemApp.parse_run_args(String["--log-level", value]).log_level == expected
+        @test TestItemApp.parse_run_args(String["--log-level=$value"]).log_level == expected
+    end
+
+    # The level of the code under test is a separate axis from the infrastructure's own
+    # debug logging; neither flag implies the other.
+    @test TestItemApp.parse_run_args(String["--debug"]).log_level == :Info
+    @test TestItemApp.parse_run_args(String["--log-level", "debug"]).debug == false
+
+    err = try
+        TestItemApp.parse_run_args(String["--log-level", "verbose"])
+        nothing
+    catch e
+        e
+    end
+    @test err isa TestItemApp.CliError
+    @test occursin("invalid value for --log-level", err.msg)
+
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--log-level"])
 end

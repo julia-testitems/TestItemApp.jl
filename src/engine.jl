@@ -256,6 +256,9 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
   caches of normal dev sessions; `"yes"` forces bounds checks everywhere (the `Pkg.test`
   behavior) at the cost of re-precompiling the whole environment into a separate cache
   slot on the first run.
+- `log_level::Symbol` — minimum log level applied around the code under test, i.e. the
+  package and the test item bodies: `:Debug`, `:Info` (default), `:Warn` or `:Error`.
+  Distinct from `log_min_level`, which governs this package's own logging.
 - `token` — optional cancellation token.
 - `log_min_level` — minimum level for log records emitted while the run is active
   (default `Logging.Warn`, which hides the controller's info-level lifecycle messages;
@@ -290,6 +293,7 @@ function _run_tests(
         gc_between_testitems::Union{Nothing,Bool} = nothing,
         memory_threshold::Union{Nothing,Float64} = nothing,
         schedule::Symbol = :duration,
+        log_level::Symbol = :Info,
         token = nothing,
         store_path::Union{Nothing,String} = nothing,
     )
@@ -297,6 +301,7 @@ function _run_tests(
     progress_ui in (:bar, :log, :none) || error("progress_ui must be :bar, :log or :none")
     output_mode in (:issues, :all, :none) || error("output_mode must be :issues, :all or :none")
     schedule in (:duration, :contiguous) || error("schedule must be :duration or :contiguous")
+    log_level in (:Debug, :Info, :Warn, :Error) || error("log_level must be :Debug, :Info, :Warn or :Error")
     if progress_ui == :none
         print_summary = false
         print_failed_results = false
@@ -416,7 +421,7 @@ function _run_tests(
             profile_name_by_env_id[env.id] = profile.name
             for i in testitems
                 if i.package_info.package_uri == pkg_uri
-                    push!(work_units, TestItemControllers.TestRunItem(i.detail.id, env.id, item_timeout, :Info))
+                    push!(work_units, TestItemControllers.TestRunItem(i.detail.id, env.id, item_timeout, log_level))
                 end
             end
         end
