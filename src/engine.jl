@@ -2,6 +2,11 @@
 
 const DEFAULT_MAX_WORKERS = min(Sys.CPU_THREADS, 8)
 
+# Folders of a package whose coverage a CI report is about. Everything else under the
+# package — `test`, `docs`, loose scripts — is instrumented too, but reporting it would
+# count a package's own test files as covered source.
+const COVERAGE_SOURCE_SUBDIRS = ("src", "ext")
+
 """
     RunProfile
 
@@ -479,11 +484,21 @@ function _run_tests(
         ProgressMeter.next!(p, showvalues = [(Symbol("Progress"), "$done/$n_total$detail")])
     end
 
-    # Coverage instrumentation is harvested per test item, but only for files under the
-    # packages being tested — without these roots the test process has nothing to filter
-    # against and collects nothing at all.
+    # Coverage instrumentation is harvested per test item, but only for files under these
+    # roots — without them the test process has nothing to filter against and collects
+    # nothing at all.
+    #
+    # `package_uri` is the folder holding Project.toml, so naming the source folders
+    # explicitly is what keeps a package's own `test/` out of the report. That matches what
+    # `julia-processcoverage` reports (`src`, plus `ext`, which is package code too), and
+    # counting test files as covered source moves the reported percentage for no good
+    # reason. Plain concatenation, not `joinpath`: these are URIs, and `src`/`ext` need no
+    # escaping. A root naming a folder that does not exist simply matches nothing.
     coverage_root_uris = any(p.coverage for p in environments) ?
-        String[uri for uri in keys(unique_packages) if !isempty(uri)] :
+        String[string(uri, '/', sub)
+               for uri in keys(unique_packages)
+               for sub in COVERAGE_SOURCE_SUBDIRS
+               if !isempty(uri)] :
         nothing
 
     coverage_results = nothing

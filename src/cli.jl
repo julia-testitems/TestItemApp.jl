@@ -320,7 +320,11 @@ function run_command(args::Vector{String})::Int
     end
 
     if opts.coverage_lcov !== nothing
-        if !TestItemControllers.write_lcov(opts.coverage_lcov, result)
+        # Same absolute-`root` requirement as the JUnit writer above. Codecov, Coveralls and
+        # `genhtml` all match `SF:` paths against paths in the repository, and the absolute
+        # paths of a CI runner match nothing at all — which is how a fully covered package
+        # ends up reported as 0%.
+        if !TestItemControllers.write_lcov(opts.coverage_lcov, result; root=abspath(opts.path))
             @warn "No coverage data was collected, $(opts.coverage_lcov) not written"
         end
     end
