@@ -46,7 +46,7 @@ The exit code is `0` when everything passed, `1` on test failures or definition 
 | Option | Description |
 | --- | --- |
 | `--filter <expr>` | Julia expression over `name`, `tags`, `filename`, `package_name`; only items for which it evaluates to `true` are run. |
-| `--timeout <seconds\|none>` | Per-test-item timeout in seconds (default: `1200`). `none` disables it. |
+| `--timeout <seconds\|none>` | Per-test-item timeout in seconds. Off by default, since a test item can legitimately take arbitrarily long. |
 | `--max-workers <n>` | Maximum number of parallel test processes (default: number of CPU threads, capped at 8). |
 | `--threads <n\|auto\|n,m>` | Value for the test processes' `--threads` (default: Julia's own default). |
 | `--progress <bar\|log\|none>` | Progress output style (default: `bar`). |

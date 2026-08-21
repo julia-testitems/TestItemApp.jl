@@ -18,8 +18,8 @@ Usage:
 Options:
   --filter <expr>                Julia expression over `name`, `tags`, `filename`,
                                  `package_name`; only items for which it is true run.
-  --timeout <seconds|none>       Per-test-item timeout in seconds (default: 1200).
-                                 "none" disables the timeout entirely.
+  --timeout <seconds|none>       Per-test-item timeout in seconds. Off by default, since
+                                 a test item can legitimately take arbitrarily long.
   --profile-name <name>          Profile name recorded in the results (default: "Default").
   --env <KEY=VALUE>              Environment variable for test processes (repeatable).
   --env-json <json>              JSON object of environment variables for test processes;
@@ -94,10 +94,6 @@ const LOG_LEVELS = Dict(
     "error" => :Error,
 )
 
-# There is no timeout at all unless one is asked for, which turns a hung test item into a
-# hung CI job. 1200s matches the default of the `julia-run-testitems` action.
-const DEFAULT_TIMEOUT = 1200.0
-
 """
     parse_run_args(args::Vector{String})
 
@@ -120,7 +116,7 @@ function parse_run_args(args::Vector{String})
 
     path = nothing
     filter_str = nothing
-    timeout = DEFAULT_TIMEOUT
+    timeout = nothing
     profile_name = "Default"
     env = Dict{String,Any}()
     results_json = nothing

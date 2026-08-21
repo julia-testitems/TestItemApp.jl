@@ -2,7 +2,7 @@
     opts = TestItemApp.parse_run_args(String[])
     @test opts.path == pwd()
     @test opts.filter_str === nothing
-    @test opts.timeout == TestItemApp.DEFAULT_TIMEOUT
+    @test opts.timeout === nothing
     @test opts.profile_name == "Default"
     @test isempty(opts.env)
     @test opts.results_json === nothing
@@ -24,9 +24,10 @@
     @test opts.debug == false
 end
 
-@testitem "parse_run_args timeout defaults and opt-out" begin
-    # A missing timeout used to mean "no timeout", which turns a hung item into a hung job.
-    @test TestItemApp.parse_run_args(String[]).timeout == 1200.0
+@testitem "parse_run_args timeout is opt-in" begin
+    # No timeout unless one is asked for: how long a test item legitimately takes is not
+    # something this tool can know, and a fired timeout is an unrecoverable hard error.
+    @test TestItemApp.parse_run_args(String[]).timeout === nothing
     @test TestItemApp.parse_run_args(String["--timeout", "30"]).timeout == 30.0
     @test TestItemApp.parse_run_args(String["--timeout=none"]).timeout === nothing
     @test TestItemApp.parse_run_args(String["--timeout", "off"]).timeout === nothing
