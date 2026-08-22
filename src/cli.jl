@@ -20,6 +20,10 @@ Options:
                                  `package_name`; only items for which it is true run.
   --timeout <seconds|none>       Per-test-item timeout in seconds. Off by default, since
                                  a test item can legitimately take arbitrarily long.
+  --activation-timeout <seconds|none>
+                                 How long a test process may spend activating its
+                                 environment before the run gives up on it. Off by default,
+                                 since activation covers the process's own precompilation.
   --profile-name <name>          Profile name recorded in the results (default: "Default").
   --env <KEY=VALUE>              Environment variable for test processes (repeatable).
   --env-json <json>              JSON object of environment variables for test processes;
@@ -74,7 +78,7 @@ _cli_error(msg) = throw(CliError(msg))
 # silently degrades into an unknown option. Options whose value can itself contain '='
 # (`--env KEY=VAL`) are the reason the split is whitelist-driven rather than unconditional.
 const VALUE_TAKING_OPTIONS = (
-    "--filter", "--timeout", "--profile-name", "--env", "--env-json",
+    "--filter", "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
     "--max-workers", "--threads", "--coverage-lcov", "--memory-threshold", "--schedule",
     "--julia-cmd", "--check-bounds", "--log-level",
@@ -117,6 +121,7 @@ function parse_run_args(args::Vector{String})
     path = nothing
     filter_str = nothing
     timeout = nothing
+    activation_timeout = nothing
     profile_name = "Default"
     env = Dict{String,Any}()
     results_json = nothing
@@ -158,6 +163,14 @@ function parse_run_args(args::Vector{String})
             else
                 timeout = tryparse(Float64, value)
                 (timeout === nothing || timeout <= 0) && _cli_error("invalid value for --timeout: $value")
+            end
+        elseif a == "--activation-timeout"
+            value = next_value(a)
+            if value in ("none", "off")
+                activation_timeout = nothing
+            else
+                activation_timeout = tryparse(Float64, value)
+                (activation_timeout === nothing || activation_timeout <= 0) && _cli_error("invalid value for --activation-timeout: $value")
             end
         elseif a == "--profile-name"
             profile_name = next_value(a)
@@ -257,6 +270,7 @@ function parse_run_args(args::Vector{String})
         path = something(path, pwd()),
         filter_str = filter_str,
         timeout = timeout,
+        activation_timeout = activation_timeout,
         profile_name = isempty(profile_name) ? "Default" : profile_name,
         env = env,
         results_json = results_json,
@@ -321,6 +335,7 @@ function run_command(args::Vector{String})::Int
         filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
         max_workers = opts.max_workers,
         timeout = opts.timeout,
+        activation_timeout = opts.activation_timeout,
         fail_on_detection_error = opts.fail_on_detection_error,
         failfast = opts.failfast,
         progress_ui = opts.progress,
