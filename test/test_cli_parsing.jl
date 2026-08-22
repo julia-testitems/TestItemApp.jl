@@ -3,6 +3,7 @@
     @test opts.path == pwd()
     @test opts.filter_str === nothing
     @test opts.timeout === nothing
+    @test opts.activation_timeout === nothing
     @test opts.profile_name == "Default"
     @test isempty(opts.env)
     @test opts.results_json === nothing
@@ -62,6 +63,19 @@ end
         @test opts.schedule == :contiguous
     end
     @test space == equals
+end
+
+@testitem "parse_run_args activation timeout is opt-in" begin
+    # Same reasoning as --timeout, one stage earlier: activation covers the test process's
+    # own precompilation, so there is no defensible default. It exists because nothing else
+    # bounds that stage — the per-test-item timeout cannot fire before an item has started.
+    @test TestItemApp.parse_run_args(String[]).activation_timeout === nothing
+    @test TestItemApp.parse_run_args(String["--activation-timeout", "900"]).activation_timeout == 900.0
+    @test TestItemApp.parse_run_args(String["--activation-timeout=none"]).activation_timeout === nothing
+    @test TestItemApp.parse_run_args(String["--activation-timeout", "off"]).activation_timeout === nothing
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--activation-timeout", "0"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--activation-timeout", "-5"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--activation-timeout", "soon"])
 end
 
 @testitem "every value-taking option is in the --opt=value whitelist" begin

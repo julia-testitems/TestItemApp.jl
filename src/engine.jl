@@ -230,6 +230,11 @@ Discover all `@testitem`s under `path` and run them, returning the aggregated
 - `filter` — predicate over `(filename, name, tags, package_name)`; only matching items run.
 - `max_workers::Int` — maximum number of parallel test processes.
 - `timeout` — per-test-item timeout in seconds, or `nothing` for no timeout.
+- `activation_timeout` — how long a test process may spend activating its environment
+  before the run gives up on it and errors that environment's items, or `nothing` (the
+  default) for no limit. Activation covers the test process's own precompilation, so a slow
+  one is legitimate; this bounds a stalled one, which nothing else does — the per-test-item
+  timeout cannot fire before an item has started.
 - `fail_on_detection_error::Bool` — when `true` (default), skip running if any test item
   fails to parse; the errors are reported in the result either way.
 - `failfast::Bool` — stop the run as soon as a test item fails or errors. Test items that
@@ -278,6 +283,7 @@ function _run_tests(
         filter = nothing,
         max_workers::Int = DEFAULT_MAX_WORKERS,
         timeout = nothing,
+        activation_timeout = nothing,
         fail_on_detection_error::Bool = true,
         failfast::Bool = false,
         print_failed_results::Bool = true,
@@ -510,7 +516,7 @@ function _run_tests(
 
     if !isempty(work_units)
         callbacks = _make_callbacks(ctx)
-        controller = TestItemControllers.TestItemController(callbacks; schedule=schedule)
+        controller = TestItemControllers.TestItemController(callbacks; schedule=schedule, activation_timeout_seconds=activation_timeout)
         reactor_task = @async try
             run(controller)
         catch err
