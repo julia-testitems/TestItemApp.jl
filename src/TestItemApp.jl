@@ -1,16 +1,20 @@
 module TestItemApp
 
-import JSON, JuliaWorkspaces, Logging, ProgressMeter, UUIDs
-import TestItemControllers
-using TestItemControllers: wait_for_shutdown
-using TestItemControllers: Results
-using TestItemControllers.Results: TestrunResult, TestrunResultTestitem, TestrunResultTestitemProfile,
+import JSON, Logging, ProgressMeter
+import TestItemRuns
+using TestItemRuns: TestrunResult, TestrunResultTestitem, TestrunResultTestitemProfile,
     TestrunResultMessage, TestrunResultStackFrame, TestrunResultDefinitionError,
-    TestrunResultPerfStats, TestrunResultFileCoverage
+    TestrunResultPerfStats, TestrunResultFileCoverage,
+    write_json, write_junit_xml, write_lcov
+using TestItemRuns: RunEvent, DiscoveryFinished, RunStarted, TestItemStarted, TestItemFinished,
+    OutputAppended, ProcessStatusChanged, RunFinished
+using TestItemRuns.CancellationTokens: CancellationTokenSource, get_token, cancel
 
 export run_tests, RunProfile
 
-include("engine.jl")
+include("console.jl")
+include("run.jl")
+include("keys.jl")
 include("cli.jl")
 
 function (@main)(args)

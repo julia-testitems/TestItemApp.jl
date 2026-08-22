@@ -2,7 +2,7 @@
 
 A command line test runner for Julia [`@testitem`](https://github.com/julia-sciml/TestItems.jl) tests. It installs a `juliati` executable that discovers all test items in a folder and runs them in parallel test processes — no editor required.
 
-Test item discovery is powered by [JuliaWorkspaces.jl](https://github.com/julia-vscode/JuliaWorkspaces.jl) and execution by [TestItemControllers.jl](https://github.com/julia-vscode/TestItemControllers.jl), the same infrastructure that runs test items in the [Julia VS Code extension](https://www.julia-vscode.org/).
+`juliati` is a thin command line front end over [TestItemRuns.jl](https://github.com/julia-testitems/TestItemRuns.jl), the Julia API for running test items: discovery is powered by [JuliaWorkspaces.jl](https://github.com/julia-vscode/JuliaWorkspaces.jl) and execution by [TestItemControllers.jl](https://github.com/julia-vscode/TestItemControllers.jl), the same infrastructure that runs test items in the [Julia VS Code extension](https://www.julia-vscode.org/).
 
 ## Installation
 
@@ -39,7 +39,9 @@ juliati path/to/MyPackage
 24 tests ran, 23 passed, 1 failed.
 ```
 
-The exit code is `0` when everything passed, `1` on test failures or definition errors, and `2` on usage errors — so it works directly in CI pipelines.
+The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors and `130` when the run was cancelled — so it works directly in CI pipelines.
+
+Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tests are running to cancel the run: the test processes are shut down cleanly, and any `--results-json`/`--junit-xml`/`--coverage-lcov` files are still written with the results collected so far.
 
 ## Options
 
