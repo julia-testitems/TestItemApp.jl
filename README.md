@@ -2,7 +2,7 @@
 
 A command line test runner for Julia [`@testitem`](https://github.com/julia-sciml/TestItems.jl) tests. It installs a `juliati` executable that discovers all test items in a folder and runs them in parallel test processes — no editor required.
 
-Test item discovery is powered by [JuliaWorkspaces.jl](https://github.com/julia-vscode/JuliaWorkspaces.jl) and execution by [TestItemControllers.jl](https://github.com/julia-vscode/TestItemControllers.jl), the same infrastructure that runs test items in the [Julia VS Code extension](https://www.julia-vscode.org/).
+`juliati` is a thin command line front end over [TestItemRuns.jl](https://github.com/julia-testitems/TestItemRuns.jl), the Julia API for running test items: discovery is powered by [JuliaWorkspaces.jl](https://github.com/julia-vscode/JuliaWorkspaces.jl) and execution by [TestItemControllers.jl](https://github.com/julia-vscode/TestItemControllers.jl), the same infrastructure that runs test items in the [Julia VS Code extension](https://www.julia-vscode.org/).
 
 ## Installation
 
@@ -39,14 +39,16 @@ juliati path/to/MyPackage
 24 tests ran, 23 passed, 1 failed.
 ```
 
-The exit code is `0` when everything passed, `1` on test failures or definition errors, and `2` on usage errors — so it works directly in CI pipelines.
+The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors and `130` when the run was cancelled — so it works directly in CI pipelines.
+
+Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tests are running to cancel the run: the test processes are shut down cleanly, and any `--results-json`/`--junit-xml`/`--coverage-lcov` files are still written with the results collected so far.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
 | `--filter <expr>` | Julia expression over `name`, `tags`, `filename`, `package_name`; only items for which it evaluates to `true` are run. |
-| `--timeout <seconds\|none>` | Per-test-item timeout in seconds (default: `1200`). `none` disables it. |
+| `--timeout <seconds\|none>` | Per-test-item timeout in seconds. Off by default, since a test item can legitimately take arbitrarily long. |
 | `--max-workers <n>` | Maximum number of parallel test processes (default: number of CPU threads, capped at 8). |
 | `--threads <n\|auto\|n,m>` | Value for the test processes' `--threads` (default: Julia's own default). |
 | `--progress <bar\|log\|none>` | Progress output style (default: `bar`). |
@@ -66,7 +68,8 @@ The exit code is `0` when everything passed, `1` on test failures or definition 
 | `--julia-cmd <path>` | Julia executable used for test processes (default: `julia`). |
 | `--check-bounds <auto\|yes>` | `--check-bounds` mode for test processes. `auto` (default) respects `@inbounds` and reuses existing precompile caches; `yes` forces bounds checks everywhere (the `Pkg.test` behavior) but precompiles the environment into a separate cache slot on the first run. |
 | `--fail-on-detection-error` / `--no-fail-on-detection-error` | Whether to refuse to run any tests when a test item fails to parse (default: fail). |
-| `--debug` | Enable debug logging. |
+| `--log-level <debug\|info\|warn\|error>` | Minimum log level for the code under test — the package and the test item bodies (default: `info`). |
+| `--debug` | Enable debug logging for the test infrastructure itself (TestItemApp and TestItemControllers). Says nothing about the code under test; use `--log-level` for that. |
 | `--help`, `--version` | Show help / version. |
 
 Options can be written as `--opt value` or `--opt=value`.
@@ -95,6 +98,20 @@ For debugging a single test item, `--stream` prints its output as it happens rat
 ```sh
 juliati --filter 'name == "the slow one"' --max-workers 1 --stream --progress log
 ```
+
+### Log levels
+
+Two separate things can be called "debug logging", and `juliati` keeps them on separate flags:
+
+- `--log-level` sets the minimum level for **the code under test** — your package and the test item bodies. `--log-level debug` makes every `@debug` in them visible, without you having to name any module.
+- `--debug` turns on debug logging for **the test infrastructure itself** (TestItemApp and TestItemControllers): process launches, scheduling, timeouts. Reach for it when a run hangs or a test process dies, not when you want to see your own package's logging.
+
+```sh
+# Show my package's @debug output for one test item
+juliati --filter 'name == "the flaky one"' --log-level debug --max-workers 1
+```
+
+`--log-level` applies a `ConsoleLogger` around the test item, so it raises the level for everything the item runs. `JULIA_DEBUG` still works if you want to scope debug output to specific modules instead — pass it through to the test processes with `--env JULIA_DEBUG=MyPkg`.
 
 ### Reports
 

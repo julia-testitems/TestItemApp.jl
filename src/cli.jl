@@ -18,8 +18,12 @@ Usage:
 Options:
   --filter <expr>                Julia expression over `name`, `tags`, `filename`,
                                  `package_name`; only items for which it is true run.
-  --timeout <seconds|none>       Per-test-item timeout in seconds (default: 1200).
-                                 "none" disables the timeout entirely.
+  --timeout <seconds|none>       Per-test-item timeout in seconds. Off by default, since
+                                 a test item can legitimately take arbitrarily long.
+  --activation-timeout <seconds|none>
+                                 How long a test process may spend activating its
+                                 environment before the run gives up on it. Off by default,
+                                 since activation covers the process's own precompilation.
   --profile-name <name>          Profile name recorded in the results (default: "Default").
   --env <KEY=VALUE>              Environment variable for test processes (repeatable).
   --env-json <json>              JSON object of environment variables for test processes;
@@ -58,9 +62,19 @@ Options:
                                  respects @inbounds and reuses existing precompile caches;
                                  "yes" forces bounds checks everywhere (Pkg.test behavior)
                                  but precompiles into a separate cache slot on first run.
-  --debug                        Enable debug logging.
+  --log-level <debug|info|warn|error>
+                                 Minimum log level for the code under test, i.e. the
+                                 package and the test item bodies (default: info).
+  --debug                        Enable debug logging for the test infrastructure itself
+                                 (TestItemApp, TestItemRuns and TestItemControllers).
+                                 This says nothing about the code under test; use
+                                 --log-level for that.
 
-Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error.
+Press Esc (or q) or Ctrl-C while tests are running to cancel the run; test processes are
+shut down cleanly and the results collected so far are still written.
+
+Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error;
+130 run cancelled.
 """
 
 _cli_error(msg) = throw(CliError(msg))
@@ -69,15 +83,25 @@ _cli_error(msg) = throw(CliError(msg))
 # silently degrades into an unknown option. Options whose value can itself contain '='
 # (`--env KEY=VAL`) are the reason the split is whitelist-driven rather than unconditional.
 const VALUE_TAKING_OPTIONS = (
-    "--filter", "--timeout", "--profile-name", "--env", "--env-json",
+    "--filter", "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
     "--max-workers", "--threads", "--coverage-lcov", "--memory-threshold", "--schedule",
-    "--julia-cmd", "--check-bounds",
+    "--julia-cmd", "--check-bounds", "--log-level",
 )
 
-# There is no timeout at all unless one is asked for, which turns a hung test item into a
-# hung CI job. 1200s matches the default of the `julia-run-testitems` action.
-const DEFAULT_TIMEOUT = 1200.0
+# What `--debug` turns on: the infrastructure's own modules, not the code under test.
+const INFRASTRUCTURE_DEBUG_MODULES = "TestItemApp,TestItemRuns,TestItemControllers"
+
+# The `--log-level` values, mapped to the symbols `TestRunItem.log_level` expects. This is
+# the level applied around the *test item body* in the test process, so it governs the
+# package under test and the tests themselves -- not the controller's own logging, which
+# `--debug` handles.
+const LOG_LEVELS = Dict(
+    "debug" => :Debug,
+    "info"  => :Info,
+    "warn"  => :Warn,
+    "error" => :Error,
+)
 
 """
     parse_run_args(args::Vector{String})
@@ -101,7 +125,8 @@ function parse_run_args(args::Vector{String})
 
     path = nothing
     filter_str = nothing
-    timeout = DEFAULT_TIMEOUT
+    timeout = nothing
+    activation_timeout = nothing
     profile_name = "Default"
     env = Dict{String,Any}()
     results_json = nothing
@@ -120,6 +145,7 @@ function parse_run_args(args::Vector{String})
     failfast = false
     julia_cmd = "julia"
     check_bounds = nothing
+    log_level = :Info
     debug = false
 
     i = 0
@@ -142,6 +168,14 @@ function parse_run_args(args::Vector{String})
             else
                 timeout = tryparse(Float64, value)
                 (timeout === nothing || timeout <= 0) && _cli_error("invalid value for --timeout: $value")
+            end
+        elseif a == "--activation-timeout"
+            value = next_value(a)
+            if value in ("none", "off")
+                activation_timeout = nothing
+            else
+                activation_timeout = tryparse(Float64, value)
+                (activation_timeout === nothing || activation_timeout <= 0) && _cli_error("invalid value for --activation-timeout: $value")
             end
         elseif a == "--profile-name"
             profile_name = next_value(a)
@@ -216,6 +250,11 @@ function parse_run_args(args::Vector{String})
             value = next_value(a)
             value in ("auto", "yes") || _cli_error("invalid value for --check-bounds: $value (expected auto or yes)")
             check_bounds = value
+        elseif a == "--log-level"
+            value = next_value(a)
+            haskey(LOG_LEVELS, value) ||
+                _cli_error("invalid value for --log-level: $value (expected debug, info, warn or error)")
+            log_level = LOG_LEVELS[value]
         elseif a == "--debug"
             debug = true
         elseif startswith(a, "-")
@@ -236,6 +275,7 @@ function parse_run_args(args::Vector{String})
         path = something(path, pwd()),
         filter_str = filter_str,
         timeout = timeout,
+        activation_timeout = activation_timeout,
         profile_name = isempty(profile_name) ? "Default" : profile_name,
         env = env,
         results_json = results_json,
@@ -254,6 +294,7 @@ function parse_run_args(args::Vector{String})
         failfast = failfast,
         julia_cmd = julia_cmd,
         check_bounds = check_bounds,
+        log_level = log_level,
         debug = debug,
     )
 end
@@ -285,45 +326,64 @@ function run_command(args::Vector{String})::Int
     opts = parse_run_args(args)
 
     if opts.debug
-        ENV["JULIA_DEBUG"] = "TestItemApp,TestItemControllers"
+        # Append rather than assign: a user who already set JULIA_DEBUG for their own
+        # modules must not lose it by also asking for infrastructure logging.
+        existing = get(ENV, "JULIA_DEBUG", "")
+        ENV["JULIA_DEBUG"] = isempty(existing) ? INFRASTRUCTURE_DEBUG_MODULES :
+                                                 "$existing,$INFRASTRUCTURE_DEBUG_MODULES"
     end
 
     isdir(opts.path) || _cli_error("no such directory: $(opts.path)")
 
-    result = run_tests(
-        opts.path;
-        filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
-        max_workers = opts.max_workers,
-        timeout = opts.timeout,
-        fail_on_detection_error = opts.fail_on_detection_error,
-        failfast = opts.failfast,
-        progress_ui = opts.progress,
-        output_mode = opts.output,
-        stream = opts.stream,
-        environments = [RunProfile(opts.profile_name, opts.coverage, opts.env)],
-        julia_cmd = opts.julia_cmd,
-        julia_num_threads = opts.threads,
-        check_bounds = opts.check_bounds,
-        gc_between_testitems = opts.gc_between_testitems,
-        memory_threshold = opts.memory_threshold,
-        schedule = opts.schedule,
-    )
+    # The run executes on its own task so this one can watch for Esc / Ctrl-C.
+    (result, reporter), cancelled_by_user = run_cancellable() do token
+        _run_tests_reported(
+            opts.path;
+            filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
+            max_workers = opts.max_workers,
+            timeout = opts.timeout,
+            activation_timeout = opts.activation_timeout,
+            fail_on_detection_error = opts.fail_on_detection_error,
+            failfast = opts.failfast,
+            progress_ui = opts.progress,
+            output_mode = opts.output,
+            stream = opts.stream,
+            environments = [RunProfile(opts.profile_name, opts.coverage, opts.env)],
+            julia_cmd = opts.julia_cmd,
+            julia_num_threads = opts.threads,
+            check_bounds = opts.check_bounds,
+            gc_between_testitems = opts.gc_between_testitems,
+            memory_threshold = opts.memory_threshold,
+            schedule = opts.schedule,
+            log_level = opts.log_level,
+            token = token,
+        )
+    end
 
+    # Result files are written even for a cancelled run: they hold whatever finished.
     if opts.results_json !== nothing
-        Results.write_json(opts.results_json, result)
+        write_json(opts.results_json, result)
     end
 
     if opts.junit_xml !== nothing
         # `root` must be absolute: JUnit classnames are relativized against it with
         # `relpath`, which does not resolve a relative root against the working directory.
-        TestItemControllers.write_junit_xml(opts.junit_xml, result; root=abspath(opts.path))
+        write_junit_xml(opts.junit_xml, result; root=abspath(opts.path))
     end
 
     if opts.coverage_lcov !== nothing
-        if !TestItemControllers.write_lcov(opts.coverage_lcov, result)
+        # Same absolute-`root` requirement as the JUnit writer above. Codecov, Coveralls and
+        # `genhtml` all match `SF:` paths against paths in the repository, and the absolute
+        # paths of a CI runner match nothing at all — which is how a fully covered package
+        # ends up reported as 0%.
+        if !write_lcov(opts.coverage_lcov, result; root=abspath(opts.path))
             @warn "No coverage data was collected, $(opts.coverage_lcov) not written"
         end
     end
+
+    # A failfast run is reported as completed, not cancelled, so this only fires when the
+    # user actually interrupted the run.
+    (cancelled_by_user || reporter.run_status == :cancelled) && return CANCEL_EXIT_CODE
 
     # A skipped test item is not a failure — `skip=` exists so that a run can leave an item
     # out on purpose, and both `Pkg.test` and `@run_package_tests` (which record a skip as
