@@ -6,11 +6,10 @@ A command line test runner for Julia [`@testitem`](https://github.com/julia-scim
 
 ## Installation
 
-TestItemApp is a [Julia app](https://pkgdocs.julialang.org/dev/apps/) and requires Julia 1.12 or newer:
+TestItemApp is a [Julia app](https://pkgdocs.julialang.org/dev/apps/) and requires Julia 1.12 or newer. Install it with the `app` command in the package REPL:
 
-```julia
-using Pkg
-Pkg.Apps.add("TestItemApp")
+```
+pkg> app add TestItemApp
 ```
 
 This installs the `juliati` executable into `~/.julia/bin`. Make sure that directory is on your `PATH`.
