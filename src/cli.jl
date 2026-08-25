@@ -24,11 +24,12 @@ Options:
                                  How long a test process may spend activating its
                                  environment before the run gives up on it. Off by default,
                                  since activation covers the process's own precompilation.
-  --run-stall <seconds|none>     How long the whole run may go with no test process busy
-                                 and no message about it before its remaining items are
-                                 errored (default 300). This measures only time in which
-                                 nothing is working on the run, so activating, revising and
-                                 running an item never count against it.
+  --run-stall <seconds|none>     Opt-in: error the run's remaining items after this long
+                                 with no test process busy and no message about it. Off by
+                                 default -- an idle run is only ever warned about. Only time
+                                 in which nothing is working on the run counts: activating,
+                                 revising and running an item never do. Set it in CI, where
+                                 a hung run otherwise burns the whole job timeout.
   --profile-name <name>          Profile name recorded in the results (default: "Default").
   --env <KEY=VALUE>              Environment variable for test processes (repeatable).
   --env-json <json>              JSON object of environment variables for test processes;
