@@ -24,6 +24,11 @@ Options:
                                  How long a test process may spend activating its
                                  environment before the run gives up on it. Off by default,
                                  since activation covers the process's own precompilation.
+  --run-stall <seconds|none>     How long the whole run may go with no test process busy
+                                 and no message about it before its remaining items are
+                                 errored (default 300). This measures only time in which
+                                 nothing is working on the run, so activating, revising and
+                                 running an item never count against it.
   --profile-name <name>          Profile name recorded in the results (default: "Default").
   --env <KEY=VALUE>              Environment variable for test processes (repeatable).
   --env-json <json>              JSON object of environment variables for test processes;
@@ -86,6 +91,7 @@ const VALUE_TAKING_OPTIONS = (
     "--filter", "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
     "--max-workers", "--threads", "--coverage-lcov", "--memory-threshold", "--schedule",
+    "--run-stall",
     "--julia-cmd", "--check-bounds", "--log-level",
 )
 
@@ -127,6 +133,9 @@ function parse_run_args(args::Vector{String})
     filter_str = nothing
     timeout = nothing
     activation_timeout = nothing
+    # `nothing` means "leave the controller's default"; `0.0` is how `--run-stall none`
+    # reaches TestItemRuns as "off". The default is on, so the two cannot be the same value.
+    run_stall = nothing
     profile_name = "Default"
     env = Dict{String,Any}()
     results_json = nothing
@@ -176,6 +185,14 @@ function parse_run_args(args::Vector{String})
             else
                 activation_timeout = tryparse(Float64, value)
                 (activation_timeout === nothing || activation_timeout <= 0) && _cli_error("invalid value for --activation-timeout: $value")
+            end
+        elseif a == "--run-stall"
+            value = next_value(a)
+            if value in ("none", "off")
+                run_stall = 0.0
+            else
+                run_stall = tryparse(Float64, value)
+                (run_stall === nothing || run_stall <= 0) && _cli_error("invalid value for --run-stall: $value (expected a positive number of seconds, or none)")
             end
         elseif a == "--profile-name"
             profile_name = next_value(a)
@@ -276,6 +293,7 @@ function parse_run_args(args::Vector{String})
         filter_str = filter_str,
         timeout = timeout,
         activation_timeout = activation_timeout,
+        run_stall = run_stall,
         profile_name = isempty(profile_name) ? "Default" : profile_name,
         env = env,
         results_json = results_json,
@@ -343,6 +361,7 @@ function run_command(args::Vector{String})::Int
             max_workers = opts.max_workers,
             timeout = opts.timeout,
             activation_timeout = opts.activation_timeout,
+            run_stall = opts.run_stall,
             fail_on_detection_error = opts.fail_on_detection_error,
             failfast = opts.failfast,
             progress_ui = opts.progress,

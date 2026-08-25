@@ -42,6 +42,9 @@ aggregated `TestrunResult`. A thin front end over `TestItemRuns.run_tests`.
   (default), `:Warn`, `:Error`).
 - `activation_timeout` — seconds a test process may spend activating and precompiling its
   environment before its items are errored, or `nothing` for no limit.
+- `run_stall` — seconds the run may go with no test process busy and no message about it
+  before its remaining items are errored. `nothing` (the default) keeps the controller's
+  own default; `0` turns the check off.
 - `check_bounds` — `--check-bounds` value for test processes: `"auto"` (or `nothing`, the
   default) respects `@inbounds` annotations and lets test processes reuse the precompile
   caches of normal dev sessions; `"yes"` forces bounds checks everywhere (the `Pkg.test`
@@ -77,6 +80,7 @@ function _run_tests_reported(
         failfast::Bool = false,
         log_level::Symbol = :Info,
         activation_timeout = nothing,
+        run_stall = nothing,
         token = nothing,
         store_path::Union{Nothing,String} = nothing,
         log_min_level = Logging.Warn,
@@ -105,6 +109,7 @@ function _run_tests_reported(
     session = TestItemRuns.TestSession(;
         schedule = schedule,
         activation_timeout_seconds = activation_timeout,
+        run_stall_seconds = run_stall,
         log_min_level = log_min_level,
     )
     result = try
