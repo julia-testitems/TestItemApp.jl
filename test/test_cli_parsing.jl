@@ -78,6 +78,19 @@ end
     @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--activation-timeout", "soon"])
 end
 
+@testitem "--run-stall is tri-state" begin
+    # Unlike every other deadline here the run-stall check is *on* by default, so "unset"
+    # and "off" cannot be the same value: `nothing` leaves the controller's default alone
+    # and `0.0` is what turns it off downstream.
+    @test TestItemApp.parse_run_args(String[]).run_stall === nothing
+    @test TestItemApp.parse_run_args(String["--run-stall", "900"]).run_stall == 900.0
+    @test TestItemApp.parse_run_args(String["--run-stall=none"]).run_stall == 0.0
+    @test TestItemApp.parse_run_args(String["--run-stall", "off"]).run_stall == 0.0
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--run-stall", "0"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--run-stall", "-5"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--run-stall", "later"])
+end
+
 @testitem "every value-taking option is in the --opt=value whitelist" begin
     # `--opt=value` is split only for options on this whitelist, so a value-taking option
     # that is missing from it silently degrades to "unknown option".
