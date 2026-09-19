@@ -47,6 +47,9 @@ Options:
   --coverage                     Run in coverage mode.
   --coverage-lcov <path>         Write the merged coverage of the run to this file in LCOV
                                  format. Implies --coverage.
+  --coverage-cobertura <path>    Write the merged coverage of the run to this file in
+                                 Cobertura XML format, which GitHub Code Quality takes
+                                 and LCOV consumers do not. Implies --coverage.
   --gc-between-testitems         Run a full GC between test items (default when more than
                                  one test process is used).
   --no-gc-between-testitems      Never GC between test items.
@@ -91,7 +94,8 @@ _cli_error(msg) = throw(CliError(msg))
 const VALUE_TAKING_OPTIONS = (
     "--filter", "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
-    "--max-workers", "--threads", "--coverage-lcov", "--memory-threshold", "--schedule",
+    "--max-workers", "--threads", "--coverage-lcov", "--coverage-cobertura",
+    "--memory-threshold", "--schedule",
     "--run-stall",
     "--julia-cmd", "--check-bounds", "--log-level",
 )
@@ -148,6 +152,7 @@ function parse_run_args(args::Vector{String})
     threads = nothing
     coverage = false
     coverage_lcov = nothing
+    coverage_cobertura = nothing
     gc_between_testitems = nothing
     memory_threshold = nothing
     schedule = :duration
@@ -243,6 +248,9 @@ function parse_run_args(args::Vector{String})
         elseif a == "--coverage-lcov"
             coverage_lcov = next_value(a)
             coverage = true
+        elseif a == "--coverage-cobertura"
+            coverage_cobertura = next_value(a)
+            coverage = true
         elseif a == "--gc-between-testitems"
             gc_between_testitems = true
         elseif a == "--no-gc-between-testitems"
@@ -306,6 +314,7 @@ function parse_run_args(args::Vector{String})
         threads = threads,
         coverage = coverage,
         coverage_lcov = coverage_lcov,
+        coverage_cobertura = coverage_cobertura,
         gc_between_testitems = gc_between_testitems,
         memory_threshold = memory_threshold,
         schedule = schedule,
@@ -398,6 +407,14 @@ function run_command(args::Vector{String})::Int
         # ends up reported as 0%.
         if !write_lcov(opts.coverage_lcov, result; root=abspath(opts.path))
             @warn "No coverage data was collected, $(opts.coverage_lcov) not written"
+        end
+    end
+
+    if opts.coverage_cobertura !== nothing
+        # Same absolute-`root` requirement, for the same reason: GitHub Code Quality matches
+        # the `filename` attributes against paths in the repository.
+        if !write_cobertura(opts.coverage_cobertura, result; root=abspath(opts.path))
+            @warn "No coverage data was collected, $(opts.coverage_cobertura) not written"
         end
     end
 

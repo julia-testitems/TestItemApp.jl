@@ -168,6 +168,35 @@ end
     end
 end
 
+@testitem "--coverage-cobertura writes repo-relative source paths" begin
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+    mktempdir() do dir
+        path = joinpath(dir, "cobertura.xml")
+        exit_code = TestItemApp.real_main([
+            fixture,
+            "--coverage-cobertura", path,
+            "--progress", "none",
+            "--output", "none",
+            "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+            "--max-workers", "1",
+        ])
+        @test exit_code == 1  # the fixture has one deliberately failing item
+
+        # ...and the file exists at all, which is the point: `--coverage-cobertura`
+        # turns coverage on by itself, with no `--coverage` alongside it.
+        @test isfile(path)
+        text = read(path, String)
+        files = [m[1] for m in eachmatch(r"filename=\"(.*?)\"", text)]
+
+        # The shape GitHub Code Quality can match against the repository -- relative,
+        # forward slashes, package source only.
+        @test !isempty(files)
+        @test all(f -> startswith(f, "src/"), files)
+        @test "src/AppTestPkg.jl" in files
+        @test !occursin("\\", text)
+    end
+end
+
 @testitem "--gc-between-testitems and --memory-threshold reach the controller" begin
     fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
     # `memory_threshold = 1.0` can never trip, so this exercises the plumbing without
