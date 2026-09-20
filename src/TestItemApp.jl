@@ -5,7 +5,7 @@ import TestItemRuns
 using TestItemRuns: TestrunResult, TestrunResultTestitem, TestrunResultTestitemProfile,
     TestrunResultMessage, TestrunResultStackFrame, TestrunResultDefinitionError,
     TestrunResultPerfStats, TestrunResultFileCoverage,
-    write_json, write_junit_xml, write_lcov
+    write_json, write_junit_xml, write_lcov, write_cobertura
 using TestItemRuns: RunEvent, DiscoveryFinished, RunStarted, TestItemStarted, TestItemFinished,
     OutputAppended, ProcessStatusChanged, RunFinished
 using TestItemRuns.CancellationTokens: CancellationTokenSource, get_token, cancel
