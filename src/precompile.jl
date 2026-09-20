@@ -77,6 +77,7 @@ using PrecompileTools: @setup_workload, @compile_workload
                     "--threads", "2",
                     "--coverage",
                     "--coverage-lcov", joinpath(good_dir, "lcov.info"),
+                    "--coverage-cobertura", joinpath(good_dir, "cobertura.xml"),
                     "--junit-xml", joinpath(good_dir, "junit.xml"),
                     "--gc-between-testitems",
                     "--memory-threshold=0.9",
@@ -122,6 +123,7 @@ using PrecompileTools: @setup_workload, @compile_workload
                 write_json(joinpath(good_dir, "sample.json"), sample)
                 write_junit_xml(joinpath(good_dir, "sample.xml"), sample; root=good_dir)
                 write_lcov(joinpath(good_dir, "sample.info"), sample; root=good_dir)
+                write_cobertura(joinpath(good_dir, "sample.cobertura.xml"), sample; root=good_dir)
 
                 # Progress bar rendering with the showvalues shapes the console reporter uses.
                 p = ProgressMeter.Progress(2;

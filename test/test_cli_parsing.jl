@@ -14,6 +14,7 @@
     @test opts.threads === nothing
     @test opts.coverage == false
     @test opts.coverage_lcov === nothing
+    @test opts.coverage_cobertura === nothing
     @test opts.gc_between_testitems === nothing
     @test opts.memory_threshold === nothing
     @test opts.schedule == :duration
@@ -41,6 +42,7 @@ end
         "--junit-xml", "j.xml",
         "--output", "all",
         "--coverage-lcov", "lcov.info",
+        "--coverage-cobertura", "cobertura.xml",
         "--threads", "4",
         "--memory-threshold", "0.75",
         "--schedule", "contiguous",
@@ -49,6 +51,7 @@ end
         "--junit-xml=j.xml",
         "--output=all",
         "--coverage-lcov=lcov.info",
+        "--coverage-cobertura=cobertura.xml",
         "--threads=4",
         "--memory-threshold=0.75",
         "--schedule=contiguous",
@@ -57,7 +60,8 @@ end
         @test opts.junit_xml == "j.xml"
         @test opts.output == :all
         @test opts.coverage_lcov == "lcov.info"
-        @test opts.coverage == true   # --coverage-lcov implies --coverage
+        @test opts.coverage_cobertura == "cobertura.xml"
+        @test opts.coverage == true   # either coverage path implies --coverage
         @test opts.threads == "4"
         @test opts.memory_threshold == 0.75
         @test opts.schedule == :contiguous
