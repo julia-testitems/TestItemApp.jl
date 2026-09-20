@@ -21,7 +21,7 @@ test = ["Test", "TestItemRunner"]
 julia = "1.12"
 ProgressMeter = "1.7"
 TestItemRuns = "1.4"
-JSON = "0.21"
+JSON = "0.21, 1"
 PrecompileTools = "1.3.4"
 
 [apps.juliati]
