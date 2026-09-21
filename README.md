@@ -38,7 +38,7 @@ juliati path/to/MyPackage
 24 tests ran, 23 passed, 1 failed.
 ```
 
-The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors and `130` when the run was cancelled — so it works directly in CI pipelines.
+The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors — including a `--filter`/`--packages` selection that matched no test item, so a typo or a renamed package cannot pass silently — and `130` when the run was cancelled. So it works directly in CI pipelines.
 
 Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tests are running to cancel the run: the test processes are shut down cleanly, and any `--results-json`/`--junit-xml`/`--coverage-lcov` files are still written with the results collected so far.
 

@@ -423,6 +423,46 @@ end
     end
 end
 
+@testitem "a selection that matches nothing is a usage error" begin
+    # Exiting 0 here is the one failure mode a test runner must not have: a renamed package
+    # or a typo in `--packages` would leave CI green while testing nothing at all.
+    fixture = normpath(joinpath(@__DIR__, "..", "testdata", "AppTestPkg"))
+
+    exit_code = TestItemApp.real_main([
+        fixture,
+        "--packages", "NoSuchPackage",
+        "--progress", "none",
+        "--output", "none",
+        "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+        "--max-workers", "1",
+    ])
+    @test exit_code == 2
+
+    # Same for a `--filter` that matches nothing.
+    exit_code = TestItemApp.real_main([
+        fixture,
+        "--filter", "name == \"no such item\"",
+        "--progress", "none",
+        "--output", "none",
+        "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+        "--max-workers", "1",
+    ])
+    @test exit_code == 2
+
+    # An *unselected* run over a tree with no test items at all is still a success: there is
+    # nothing there for the user to have got wrong.
+    mktempdir() do dir
+        exit_code = TestItemApp.real_main([
+            dir,
+            "--progress", "none",
+            "--output", "none",
+            "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+            "--max-workers", "1",
+        ])
+        @test exit_code == 0
+    end
+end
+
 @testitem "log_level controls the tested code's log output" begin
     include(joinpath(@__DIR__, "capture_stdout.jl"))
 

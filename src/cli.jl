@@ -88,8 +88,8 @@ Options:
 Press Esc (or q) or Ctrl-C while tests are running to cancel the run; test processes are
 shut down cleanly and the results collected so far are still written.
 
-Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error;
-130 run cancelled.
+Exit codes: 0 all tests passed; 1 test failures or definition errors; 2 usage error,
+including a --filter/--packages selection that matched no test item; 130 run cancelled.
 """
 
 _cli_error(msg) = throw(CliError(msg))
@@ -484,7 +484,21 @@ function run_command(args::Vector{String})::Int
         p.status != :passed && p.status != :skipped
         for ti in result.testitems for p in ti.profiles
     )
-    return (any_failed || !isempty(result.definition_errors)) ? 1 : 0
+    if any_failed || !isempty(result.definition_errors)
+        return 1
+    end
+
+    # An explicit selection that matched nothing is an error, not a pass. A run that tests
+    # nothing otherwise exits 0, so a renamed package or a typo in `--packages` leaves CI
+    # green forever — the one failure mode a test runner must not have. Reported as a usage
+    # error because the arguments are what is wrong, not the tests. An *unfiltered* run over
+    # a tree with no test items at all stays a success: there is nothing there to be wrong
+    # about. Results files are already written at this point, so a report still describes
+    # the empty run.
+    isempty(result.testitems) && !isempty(selectors) &&
+        _cli_error("the selection matched no test items")
+
+    return 0
 end
 
 # Running tests is the default action (pytest-style): `juliati [path] [options]`.
