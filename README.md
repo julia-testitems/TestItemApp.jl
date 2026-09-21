@@ -38,7 +38,7 @@ juliati path/to/MyPackage
 24 tests ran, 23 passed, 1 failed.
 ```
 
-The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors and `130` when the run was cancelled — so it works directly in CI pipelines.
+The exit code is `0` when everything passed, `1` on test failures or definition errors, `2` on usage errors — including a `--filter`/`--packages` selection that matched no test item, so a typo or a renamed package cannot pass silently — and `130` when the run was cancelled. So it works directly in CI pipelines.
 
 Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tests are running to cancel the run: the test processes are shut down cleanly, and any `--results-json`/`--junit-xml`/`--coverage-lcov` files are still written with the results collected so far.
 
@@ -47,6 +47,8 @@ Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tes
 | Option | Description |
 | --- | --- |
 | `--filter <expr>` | Julia expression over `name`, `tags`, `filename`, `package_name`; only items for which it evaluates to `true` are run. |
+| `--packages <names>` | Comma separated package names; only test items owned by one of them are run. Repeatable. |
+| `--exclude-packages <names>` | Comma separated package names whose test items are not run. Applied after `--packages`. Repeatable. |
 | `--timeout <seconds\|none>` | Per-test-item timeout in seconds. Off by default, since a test item can legitimately take arbitrarily long. |
 | `--max-workers <n>` | Maximum number of parallel test processes (default: number of CPU threads, capped at 8). |
 | `--threads <n\|auto\|n,m>` | Value for the test processes' `--threads` (default: Julia's own default). |
@@ -87,6 +89,32 @@ juliati --filter ':fast in tags && !(:windows in tags)'
 # Run only test items from one file
 juliati --filter 'endswith(filename, "test_parsing.jl")'
 ```
+
+### Monorepos and Pkg workspaces
+
+Discovery is a folder walk, not a package dependency traversal, so `juliati` at the root of
+a monorepo or a Pkg `[workspace]` runs the test items of *every* package below it — there is
+no "recursive" switch to find. Each package gets its own test process with its own test
+environment (its `test/Project.toml` target, resolved through the workspace manifest when
+there is one), and the results are aggregated into a single run.
+
+`--packages` narrows that down when you only care about one member, which also avoids
+activating and precompiling the other members' environments:
+
+```sh
+# Everything, one process per package
+juliati
+
+# Just one member of the workspace
+juliati --packages MyPackage
+
+# Everything except the slow ones
+juliati --exclude-packages Integration,Benchmarks
+```
+
+To exclude a subtree permanently — vendored code, a directory of test data — use the
+`exclude` globs in `JuliaTestItems.toml` instead; those prune the walk itself, so the files
+are never read.
 
 ### Test item output
 
