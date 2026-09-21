@@ -396,6 +396,33 @@ end
     @test exit_code == 1
 end
 
+@testitem "--packages selects one package out of a multi-package tree" begin
+    # `testdata/` holds four sibling packages and is not a package itself, so a run rooted
+    # there is the monorepo shape: every package below it, each in its own test environment.
+    # Selecting the one package that passes is what makes this a real check — without the
+    # flag AppTestPkg's and FailfastPkg's deliberate failures would make the run exit 1.
+    root = normpath(joinpath(@__DIR__, "..", "testdata"))
+    mktempdir() do dir
+        path = joinpath(dir, "results.json")
+        exit_code = TestItemApp.real_main([
+            root,
+            "--packages", "SkipPkg",
+            "--results-json", path,
+            "--progress", "none",
+            "--output", "none",
+            "--julia-cmd", joinpath(Sys.BINDIR, "julia"),
+            "--max-workers", "1",
+        ])
+        @test exit_code == 0
+
+        text = read(path, String)
+        @test occursin("SkipPkg", text)
+        @test !occursin("AppTestPkg", text)
+        @test !occursin("FailfastPkg", text)
+        @test !occursin("LogLevelPkg", text)
+    end
+end
+
 @testitem "log_level controls the tested code's log output" begin
     include(joinpath(@__DIR__, "capture_stdout.jl"))
 

@@ -18,6 +18,12 @@ Usage:
 Options:
   --filter <expr>                Julia expression over `name`, `tags`, `filename`,
                                  `package_name`; only items for which it is true run.
+  --packages <names>             Comma separated package names; only test items owned by
+                                 one of them run (repeatable). A run at the root of a
+                                 monorepo or Pkg workspace otherwise covers every package
+                                 below it, each in its own test environment.
+  --exclude-packages <names>     Comma separated package names whose test items do not run
+                                 (repeatable). Applied after --packages.
   --timeout <seconds|none>       Per-test-item timeout in seconds. Off by default, since
                                  a test item can legitimately take arbitrarily long.
   --activation-timeout <seconds|none>
@@ -92,7 +98,8 @@ _cli_error(msg) = throw(CliError(msg))
 # silently degrades into an unknown option. Options whose value can itself contain '='
 # (`--env KEY=VAL`) are the reason the split is whitelist-driven rather than unconditional.
 const VALUE_TAKING_OPTIONS = (
-    "--filter", "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
+    "--filter", "--packages", "--exclude-packages",
+    "--timeout", "--activation-timeout", "--profile-name", "--env", "--env-json",
     "--juliaup-channel", "--results-json", "--junit-xml", "--progress", "--output",
     "--max-workers", "--threads", "--coverage-lcov", "--coverage-cobertura",
     "--memory-threshold", "--schedule",
@@ -136,6 +143,10 @@ function parse_run_args(args::Vector{String})
 
     path = nothing
     filter_str = nothing
+    # Package selection accumulates across repeats, so `--packages A --packages B` and
+    # `--packages A,B` are the same run (the `--env` precedent).
+    packages = String[]
+    exclude_packages = String[]
     timeout = nothing
     activation_timeout = nothing
     # `nothing` means "leave the controller's default"; `0.0` is how `--run-stall none`
@@ -176,6 +187,10 @@ function parse_run_args(args::Vector{String})
         a = expanded[i]
         if a == "--filter"
             filter_str = next_value(a)
+        elseif a == "--packages"
+            append!(packages, _split_package_names(a, next_value(a)))
+        elseif a == "--exclude-packages"
+            append!(exclude_packages, _split_package_names(a, next_value(a)))
         elseif a == "--timeout"
             value = next_value(a)
             if value in ("none", "off")
@@ -300,6 +315,8 @@ function parse_run_args(args::Vector{String})
     return (
         path = something(path, pwd()),
         filter_str = filter_str,
+        packages = packages,
+        exclude_packages = exclude_packages,
         timeout = timeout,
         activation_timeout = activation_timeout,
         run_stall = run_stall,
@@ -340,6 +357,35 @@ function _valid_threads(value::AbstractString)
     end
 end
 
+# A comma separated package list. An empty entry is rejected rather than ignored: it is
+# always a typo (`--packages A,,B`, or a shell that expanded a variable to nothing), and
+# silently dropping it would run more tests than asked for.
+function _split_package_names(option::AbstractString, value::AbstractString)
+    names = String[strip(p) for p in split(value, ',')]
+    any(isempty, names) && _cli_error("invalid value for $option: $value (empty package name)")
+    return names
+end
+
+"""
+    make_package_filter(packages, exclude_packages)
+
+A `TestItem -> Bool` predicate for the `--packages` / `--exclude-packages` selection, or
+`nothing` when neither was given.
+
+Matching is on the package name, exactly and case sensitively, as Julia package names are.
+A test item that belongs to no package has an empty `package_name` and so is never selected
+by `--packages` — asking for a named package must not drag in items that have none.
+"""
+function make_package_filter(packages::Vector{String}, exclude_packages::Vector{String})
+    isempty(packages) && isempty(exclude_packages) && return nothing
+    included = Set(packages)
+    excluded = Set(exclude_packages)
+    return function (i)
+        isempty(included) || i.package_name in included || return false
+        return !(i.package_name in excluded)
+    end
+end
+
 function make_filter(filter_str::AbstractString)
     filter_expr = Meta.parse(filter_str)
     f = Base.eval(FilterEval, :(
@@ -363,11 +409,19 @@ function run_command(args::Vector{String})::Int
 
     isdir(opts.path) || _cli_error("no such directory: $(opts.path)")
 
+    # `--filter` and the package selection are independent criteria, so an item has to
+    # satisfy every one that was given.
+    selectors = Any[]
+    opts.filter_str === nothing || push!(selectors, make_filter(opts.filter_str))
+    pkg_filter = make_package_filter(opts.packages, opts.exclude_packages)
+    pkg_filter === nothing || push!(selectors, pkg_filter)
+    item_filter = isempty(selectors) ? nothing : i -> all(f -> f(i), selectors)
+
     # The run executes on its own task so this one can watch for Esc / Ctrl-C.
     (result, reporter), cancelled_by_user = run_cancellable() do token
         _run_tests_reported(
             opts.path;
-            filter = opts.filter_str === nothing ? nothing : make_filter(opts.filter_str),
+            filter = item_filter,
             max_workers = opts.max_workers,
             timeout = opts.timeout,
             activation_timeout = opts.activation_timeout,

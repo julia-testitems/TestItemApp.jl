@@ -2,6 +2,8 @@
     opts = TestItemApp.parse_run_args(String[])
     @test opts.path == pwd()
     @test opts.filter_str === nothing
+    @test isempty(opts.packages)
+    @test isempty(opts.exclude_packages)
     @test opts.timeout === nothing
     @test opts.activation_timeout === nothing
     @test opts.profile_name == "Default"
@@ -67,6 +69,51 @@ end
         @test opts.schedule == :contiguous
     end
     @test space == equals
+end
+
+@testitem "parse_run_args package selection" begin
+    space = TestItemApp.parse_run_args(String["--packages", "A,B", "--exclude-packages", "C"])
+    equals = TestItemApp.parse_run_args(String["--packages=A,B", "--exclude-packages=C"])
+    for opts in (space, equals)
+        @test opts.packages == ["A", "B"]
+        @test opts.exclude_packages == ["C"]
+    end
+    @test space == equals
+
+    # Repeating accumulates, and surrounding whitespace is not part of a package name.
+    accumulated = TestItemApp.parse_run_args(String["--packages", "A", "--packages", "B, C"])
+    @test accumulated.packages == ["A", "B", "C"]
+
+    # An empty entry is a typo, not "no package".
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--packages", "A,,B"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--packages", ""])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--exclude-packages", "A,"])
+end
+
+@testitem "make_package_filter" begin
+    item(pkg) = (filename="f.jl", name="n", tags=Symbol[], package_name=pkg)
+
+    @test TestItemApp.make_package_filter(String[], String[]) === nothing
+
+    include_only = TestItemApp.make_package_filter(["A", "B"], String[])
+    @test include_only(item("A"))
+    @test include_only(item("B"))
+    @test !include_only(item("C"))
+    # Package names are case sensitive, and an item belonging to no package is not "A".
+    @test !include_only(item("a"))
+    @test !include_only(item(""))
+
+    exclude_only = TestItemApp.make_package_filter(String[], ["C"])
+    @test exclude_only(item("A"))
+    @test !exclude_only(item("C"))
+    # Without --packages, an item belonging to no package still runs.
+    @test exclude_only(item(""))
+
+    # Include first, then exclude.
+    both = TestItemApp.make_package_filter(["A", "B"], ["B"])
+    @test both(item("A"))
+    @test !both(item("B"))
+    @test !both(item("C"))
 end
 
 @testitem "parse_run_args activation timeout is opt-in" begin
