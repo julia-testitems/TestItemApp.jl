@@ -1,7 +1,5 @@
 # run.jl — the `run_tests` entry point: TestItemRuns plus console reporting
 
-const DEFAULT_MAX_WORKERS = TestItemRuns.DEFAULT_MAX_WORKERS
-
 """
     RunProfile
 
@@ -17,7 +15,9 @@ aggregated `TestrunResult`. A thin front end over `TestItemRuns.run_tests`.
 
 # Keyword arguments
 - `filter` — predicate over `(filename, name, tags, package_name)`; only matching items run.
-- `max_workers::Int` — maximum number of parallel test processes.
+- `max_workers::Int` — maximum number of parallel test processes. Defaults to
+  `TestItemRuns.default_max_workers()`, evaluated at call time: the number of CPU threads,
+  at most 8 and at most one per 3 GiB of system memory.
 - `timeout` — per-test-item timeout in seconds, or `nothing` for no timeout.
 - `fail_on_detection_error::Bool` — when `true` (default), skip running if any test item
   fails to parse; the errors are reported in the result either way.
@@ -31,10 +31,11 @@ aggregated `TestrunResult`. A thin front end over `TestItemRuns.run_tests`.
 - `environments::Vector{RunProfile}` — run every item once per profile.
 - `julia_cmd`, `julia_args`, `julia_num_threads` — how to launch test processes.
   `julia_num_threads` is the test processes' `--threads` value (`"4"`, `"auto"`, `"4,1"`).
-- `gc_between_testitems::Union{Nothing,Bool}` — run a full GC between test items;
-  `nothing` (default) turns it on when more than one test process is used.
-- `memory_threshold::Union{Nothing,Float64}` — recycle a test process once system memory
-  use exceeds this fraction; `nothing` (default) never recycles.
+- `gc_between_testitems::Union{Nothing,Bool}` — run a full garbage collection after every
+  test item; `nothing` (default) keeps the controller's default, which is off.
+- `memory_threshold::Union{Nothing,Float64}` — recycle a test process once its own resident
+  memory exceeds this fraction of total system memory, between 0 and 1; `nothing` (default)
+  never recycles.
 - `schedule::Symbol` — `:duration` (default) or `:contiguous`.
 - `failfast::Bool` — stop at the first failing or errored item; the rest are reported as
   skipped and the run is still a completed one, so it exits like an ordinary failure.
@@ -62,7 +63,7 @@ run_tests(path; kwargs...) = first(_run_tests_reported(path; kwargs...))
 function _run_tests_reported(
         path;
         filter = nothing,
-        max_workers::Int = DEFAULT_MAX_WORKERS,
+        max_workers::Int = TestItemRuns.default_max_workers(),
         timeout = nothing,
         fail_on_detection_error::Bool = true,
         print_failed_results::Bool = true,

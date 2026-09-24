@@ -48,15 +48,15 @@ Press <kbd>Esc</kbd> (or <kbd>q</kbd>) or <kbd>Ctrl</kbd>+<kbd>C</kbd> while tes
 | --- | --- |
 | `--filter <expr>` | Julia expression over `name`, `tags`, `filename`, `package_name`; only items for which it evaluates to `true` are run. |
 | `--timeout <seconds\|none>` | Per-test-item timeout in seconds. Off by default, since a test item can legitimately take arbitrarily long. |
-| `--max-workers <n>` | Maximum number of parallel test processes (default: number of CPU threads, capped at 8). |
+| `--max-workers <n>` | Maximum number of parallel test processes (default: the number of CPU threads, at most 8 and at most one per 3 GiB of system memory). |
 | `--threads <n\|auto\|n,m>` | Value for the test processes' `--threads` (default: Julia's own default). |
 | `--progress <bar\|log\|none>` | Progress output style (default: `bar`). |
 | `--output <issues\|all\|none>` | Which captured test item output is echoed to the console: only failing items (default), every item, or nothing. Output is always captured into the results regardless. |
-| `--stream` | Print test item output live as it is produced instead of when the item finishes. Requires `--max-workers 1`. |
+| `--stream` | Print test item output live as it is produced instead of when the item finishes. Implies `--max-workers 1`. |
 | `--coverage` | Run test processes in coverage mode. |
 | `--coverage-lcov <path>` | Write the merged coverage of the run to this file in LCOV format. Implies `--coverage`. |
-| `--gc-between-testitems` / `--no-gc-between-testitems` | Run a full GC between test items. On by default when more than one test process is used. |
-| `--memory-threshold <frac>` | Recycle a test process once system memory use exceeds this fraction (0–1). Off by default. |
+| `--gc-between-testitems` / `--no-gc-between-testitems` | Run a full garbage collection after every test item (default: off). |
+| `--memory-threshold <frac>` | Recycle a test process once its own resident memory exceeds this fraction of total system memory, between 0 and 1 (default: off). |
 | `--schedule <duration\|contiguous>` | How test items are distributed over test processes. `duration` (default) orders by measured duration, past failures and warm setups; `contiguous` chunks by position. |
 | `--results-json <path>` | Write the full test run results as JSON to this file. |
 | `--junit-xml <path>` | Write the test run results as JUnit XML to this file. |
@@ -92,10 +92,10 @@ juliati --filter 'endswith(filename, "test_parsing.jl")'
 
 Every test item's captured output always reaches `--results-json` and `--junit-xml`. `--output` only controls what is echoed to the console: `issues` (the default) prints it alongside the failure detail of failing items, `all` prints it for every item as it finishes, and `none` prints none of it.
 
-For debugging a single test item, `--stream` prints its output as it happens rather than after it finishes. Because output from several test processes would interleave arbitrarily, it requires `--max-workers 1`:
+For debugging a single test item, `--stream` prints its output as it happens rather than after it finishes. Because output from several test processes would interleave arbitrarily, it implies `--max-workers 1` (an explicit `--max-workers` other than 1 is an error):
 
 ```sh
-juliati --filter 'name == "the slow one"' --max-workers 1 --stream --progress log
+juliati --filter 'name == "the slow one"' --stream --progress log
 ```
 
 ### Log levels
@@ -128,7 +128,9 @@ juliati --coverage-lcov lcov.info
 
 ### Memory and scheduling
 
-Test processes are pooled and outlive a single run, so long sessions benefit from `--gc-between-testitems` (on by default with more than one worker) and `--memory-threshold 0.9`, which recycles a test process once system memory use crosses that fraction.
+Test processes are pooled and outlive a single run, so long sessions can benefit from `--gc-between-testitems` (off by default), which runs a full garbage collection after every test item, and `--memory-threshold <frac>`, which recycles a test process once its own resident memory exceeds `frac` of total system memory.
+
+By default `juliati` uses one test process per CPU thread, but at most 8 and at most one per 3 GiB of system memory, since a machine that runs out of memory gets far slower than one running fewer test processes.
 
 `--schedule duration` (the default) orders test items by their measured duration, past failures and which test process already has their `@testmodule`s warm. `--schedule contiguous` restores the previous chunk-by-position behavior if that ordering ever misbehaves.
 

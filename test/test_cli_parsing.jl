@@ -11,10 +11,14 @@
     @test opts.progress == :bar
     @test opts.output == :issues
     @test opts.stream == false
+    # Computed from the machine's CPUs and memory when the arguments are parsed.
+    @test opts.max_workers == TestItemApp.TestItemRuns.default_max_workers()
+    @test opts.max_workers >= 1
     @test opts.threads === nothing
     @test opts.coverage == false
     @test opts.coverage_lcov === nothing
     @test opts.coverage_cobertura === nothing
+    # `nothing` leaves both to TestItemControllers, where they default to off.
     @test opts.gc_between_testitems === nothing
     @test opts.memory_threshold === nothing
     @test opts.schedule == :duration
@@ -129,11 +133,26 @@ end
     @test TestItemApp.parse_run_args(String["--gc-between-testitems"]).gc_between_testitems == true
     @test TestItemApp.parse_run_args(String["--no-gc-between-testitems"]).gc_between_testitems == false
 
-    @test TestItemApp.parse_run_args(String["--stream", "--max-workers", "1"]).stream == true
-    # Live output from several processes would interleave arbitrarily.
-    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--stream"])
-    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--stream", "--max-workers", "4"])
+    # Live output from several processes would interleave arbitrarily, so `--stream` implies
+    # a single test process -- whatever the machine-dependent default would have been.
+    opts = TestItemApp.parse_run_args(String["--stream"])
+    @test opts.stream == true
+    @test opts.max_workers == 1
+
+    opts = TestItemApp.parse_run_args(String["--stream", "--max-workers", "1"])
+    @test opts.stream == true
+    @test opts.max_workers == 1
+    opts = TestItemApp.parse_run_args(String["--max-workers=1", "--stream"])
+    @test opts.stream == true
+    @test opts.max_workers == 1
+
+    # Only an explicit, conflicting worker count is an error, in either order.
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--stream", "--max-workers", "3"])
+    @test_throws TestItemApp.CliError TestItemApp.parse_run_args(String["--max-workers", "3", "--stream"])
     @test TestItemApp.real_main(["--stream", "--max-workers", "2"]) == 2
+
+    # Without --stream, an explicit --max-workers is taken as given.
+    @test TestItemApp.parse_run_args(String["--max-workers", "3"]).max_workers == 3
 end
 
 @testitem "parse_run_args new option errors" begin
