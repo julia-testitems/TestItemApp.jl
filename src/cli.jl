@@ -40,9 +40,11 @@ Options:
   --progress <bar|log|none>      Progress output style (default: bar).
   --output <issues|all|none>     Which captured test item output to echo to the console:
                                  only failing items (default), every item, or nothing.
-  --stream                       Stream test item output live as it is produced. Requires
+  --stream                       Stream test item output live as it is produced. Implies
                                  --max-workers 1.
-  --max-workers <n>              Maximum number of parallel test processes.
+  --max-workers <n>              Maximum number of parallel test processes (default: the
+                                 number of CPU threads, at most 8 and at most one per 3 GiB
+                                 of system memory).
   --threads <n|auto|n,m>         Value for the test processes' --threads (default: Julia's).
   --coverage                     Run in coverage mode.
   --coverage-lcov <path>         Write the merged coverage of the run to this file in LCOV
@@ -50,11 +52,12 @@ Options:
   --coverage-cobertura <path>    Write the merged coverage of the run to this file in
                                  Cobertura XML format, which GitHub Code Quality takes
                                  and LCOV consumers do not. Implies --coverage.
-  --gc-between-testitems         Run a full GC between test items (default when more than
-                                 one test process is used).
+  --gc-between-testitems         Run a full garbage collection after every test item
+                                 (default: off).
   --no-gc-between-testitems      Never GC between test items.
-  --memory-threshold <frac>      Recycle a test process once system memory use exceeds this
-                                 fraction, between 0 and 1 (default: off).
+  --memory-threshold <frac>      Recycle a test process once its own resident memory exceeds
+                                 this fraction of total system memory, between 0 and 1
+                                 (default: off).
   --schedule <duration|contiguous>
                                  How test items are distributed over test processes:
                                  "duration" (default) orders by measured duration, past
@@ -148,7 +151,9 @@ function parse_run_args(args::Vector{String})
     progress = :bar
     output = :issues
     stream = false
-    max_workers = DEFAULT_MAX_WORKERS
+    # `nothing` until `--max-workers` is given, so `--stream` can tell an explicit choice
+    # from the default; the default itself depends on the machine's CPUs and memory.
+    max_workers = nothing
     threads = nothing
     coverage = false
     coverage_lcov = nothing
@@ -237,8 +242,9 @@ function parse_run_args(args::Vector{String})
             stream = true
         elseif a == "--max-workers"
             value = next_value(a)
-            max_workers = tryparse(Int, value)
-            (max_workers === nothing || max_workers < 1) && _cli_error("invalid value for --max-workers: $value")
+            n_workers = tryparse(Int, value)
+            (n_workers === nothing || n_workers < 1) && _cli_error("invalid value for --max-workers: $value")
+            max_workers = n_workers
         elseif a == "--threads"
             value = next_value(a)
             _valid_threads(value) || _cli_error("invalid value for --threads: $value (expected a positive integer, \"auto\", or \"N,M\")")
@@ -293,9 +299,15 @@ function parse_run_args(args::Vector{String})
     end
 
     # Live streaming interleaves output from whichever process happens to write next, so it
-    # is only meaningful when there is exactly one of them.
-    stream && max_workers != 1 &&
-        _cli_error("--stream requires --max-workers 1 (got $max_workers)")
+    # is only meaningful when there is exactly one of them. `--stream` therefore implies one
+    # test process; only an explicit, conflicting `--max-workers` is an error. The default
+    # depends on the machine, so it must not decide whether a command line is valid.
+    if stream
+        max_workers === nothing || max_workers == 1 ||
+            _cli_error("--stream requires --max-workers 1 (got $max_workers)")
+        max_workers = 1
+    end
+    max_workers = something(max_workers, TestItemRuns.default_max_workers())
 
     return (
         path = something(path, pwd()),
